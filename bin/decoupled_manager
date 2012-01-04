@@ -1,0 +1,59 @@
+#!/usr/bin/env ruby
+# coding: utf-8
+$LOAD_PATH << '.'
+
+require 'optparse'
+require 'amqp'
+require 'redis'
+require 'decoupled/scheduler'
+require 'decoupled/manager'
+
+options = {}
+
+optparse = OptionParser.new do |opts|
+  
+  options[:queue_name] = 'schedule'
+  opts.on('-q', '--queue_name QUEUE_NAME', "name of the schedule queue (default => #{options[:queue_name]})") do |queue_name|            
+    options[:queue_name] = queue_name
+  end
+  
+  options[:environment] = 'development'
+  opts.on('-q', '--environment DECOUPLED', "environment for different connections (default => #{options[:environment]})") do |environment|            
+    options[:environment] = environment
+  end
+
+  opts.on('-h', '--help', 'Help messages') do     
+    puts opts
+    exit    
+  end       
+end
+
+begin       
+  optparse.parse!                 
+rescue OptionParser::InvalidOption, OptionParser::MissingArgument  
+  puts $!.to_s         
+  puts optparse        
+  exit
+end
+
+ENV['DECOUPLED'] = options[:environment]
+# All option parsed successfully
+# Show process Starting information
+$0 = "Starting decoupled:manager"
+$stdout.sync = true
+    
+AMQP.start(:host => '127.0.0.1') do |connection, open_ok|
+  manager_name = "#{`hostname`.chomp}-#{Process.pid}"
+  
+  channel   = AMQP::Channel.new(connection)
+  scheduler = Decoupled::Scheduler.new(channel, options[:queue_name])
+  scheduler.start
+  
+  manager = Decoupled::Manager.new(channel)
+  manager.start
+
+  $0 = "decoupled:manager => accepts schedule messages"
+  # Stop the worker
+  trap('TERM') { puts "\n stopping manager"; connection.close { EventMachine.stop } }
+  trap('INT')  { puts "\n stopping manager"; connection.close { EventMachine.stop } }
+end

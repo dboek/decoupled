@@ -1,0 +1,86 @@
+#!/usr/bin/env ruby
+# coding: utf-8
+
+require 'rubygems'
+require 'optparse'
+require 'amqp'
+require 'redis'
+require 'job_background'
+require 'decoupled/consumer'
+require 'decoupled/producer'
+
+options = {}
+
+optparse = OptionParser.new do |opts|
+  
+  opts.on('-q', '--queue_name QUEUE_NAME', "name of the queue this consumer will subscribe to") do |queue_name|            
+    options[:queue_name] = queue_name
+  end       
+
+  options[:count] = 1
+  opts.on('-c', '--count PREFETCH_COUNT', Integer, "Number of message the consumer will process in parallel (default => #{options[:count]})") do |prefetch_count|            
+    options[:prefetch_count] = prefetch_count
+  end       
+   
+  opts.on('-j', '--job_class JOB_CLASS', "JobClass the consumer will invoke when a message arrives") do |job_class|           
+    options[:job_class] = job_class         
+  end 
+  
+  options[:amqp_host] = '127.0.0.1'
+  opts.on('-a', '--amqp_host AMQP_HOST', "AMQP needs a Host to connect to (default => #{options[:amqp_host]})") do |amqp_host|           
+    options[:amqp_host] = amqp_host
+  end
+  
+  options[:environment] = 'development'
+  opts.on('-e', '--environment DECOUPLED', "decoupled environment can be used in the jobs (default => #{options[:environment]})") do |environment|           
+    options[:environment] = environment
+  end
+
+  opts.on('-h', '--help', 'Help messages') do     
+    puts opts                     
+    exit    
+  end       
+end
+
+begin       
+  optparse.parse!                 
+  mandatory = [:job_class, :queue_name]                   
+  missing = mandatory.select{ |param| options[param].nil? }        
+  if not missing.empty?
+    puts "Missing options: #{missing.join(', ')}"                  
+    puts optparse      
+    exit               
+  end
+rescue OptionParser::InvalidOption, OptionParser::MissingArgument  
+  puts $!.to_s         
+  puts optparse        
+  exit
+end
+
+ENV['DECOUPLED'] = options[:environment]
+# All option parsed successfully
+# Show process Starting information
+puts "Starting decoupled:consumer"
+$0 = "Starting decoupled:consumer"
+$stdout.sync = true
+#unless options[:environment] == 'development'
+#  File.open('/var/apps/globalmq/shared/decoupled.pid', 'w') do |file|   
+#    file.puts Process.pid
+#  end
+#end
+  
+AMQP.start(:host => options[:amqp_host]) do |connection, open_ok|
+  consumer_name = "#{`hostname`.chomp}-#{Process.pid}"
+  
+  channel   = AMQP::Channel.new(connection)
+  consumer = Decoupled::Consumer.new(consumer_name, channel, options[:queue_name], options[:prefetch_count], options[:job_class])
+  consumer.start
+
+  $0 = "decoupled:consumer subscribed to => #{options[:queue_name]}"
+  # Stop the worker
+  trap('TERM') { puts "\n stopping consumer"; connection.close { EventMachine.stop } }
+  trap('INT')  { puts "\n stopping consumer"; connection.close { EventMachine.stop } }
+end
+
+# Friendly optparse with help from: 
+# http://stackoverflow.com/questions/1541294/how-do-you-specify-a-required-switch-not-argument-with-ruby-optionparser
