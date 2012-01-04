@@ -1,11 +1,14 @@
 #!/usr/bin/env ruby
 # coding: utf-8
 
+# Load all files in the directory decoupled is started from
+$LOAD_PATH << Dir.pwd
+
 require 'rubygems'
 require 'optparse'
 require 'amqp'
 require 'redis'
-require 'job_background'
+require 'decoupled/util'
 require 'decoupled/consumer'
 require 'decoupled/producer'
 
@@ -23,7 +26,7 @@ optparse = OptionParser.new do |opts|
   end       
    
   opts.on('-j', '--job_class JOB_CLASS', "JobClass the consumer will invoke when a message arrives") do |job_class|           
-    options[:job_class] = job_class         
+    options[:job_class] = job_class
   end 
   
   options[:amqp_host] = '127.0.0.1'
@@ -63,11 +66,8 @@ ENV['DECOUPLED'] = options[:environment]
 puts "Starting decoupled:consumer"
 $0 = "Starting decoupled:consumer"
 $stdout.sync = true
-#unless options[:environment] == 'development'
-#  File.open('/var/apps/globalmq/shared/decoupled.pid', 'w') do |file|   
-#    file.puts Process.pid
-#  end
-#end
+
+require Decoupled::String.underscore(options[:job_class])
   
 AMQP.start(:host => options[:amqp_host]) do |connection, open_ok|
   consumer_name = "#{`hostname`.chomp}-#{Process.pid}"
@@ -82,5 +82,5 @@ AMQP.start(:host => options[:amqp_host]) do |connection, open_ok|
   trap('INT')  { puts "\n stopping consumer"; connection.close { EventMachine.stop } }
 end
 
-# Friendly optparse with help from: 
+# optparse with help from: 
 # http://stackoverflow.com/questions/1541294/how-do-you-specify-a-required-switch-not-argument-with-ruby-optionparser
