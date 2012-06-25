@@ -17,13 +17,16 @@ Gem::Specification.new do |s|
   s.files         = `git ls-files`.split("\n")
   s.test_files    = `git ls-files -- {test,spec,features}/*`.split("\n")
   s.executables   = `git ls-files -- bin/*`.split("\n").map{ |f| File.basename(f) }
-  s.require_paths = ["lib"]
+  #s.require_paths = ["lib"]
   
-  s.add_dependency(%q<amqp>, ["~> 0.8.0"])
+  #s.add_dependency(%q<amqp>, ["~> 0.8.0"])
   s.add_dependency(%q<redis>)
-  s.add_dependency(%q<bson_ext>)
   s.add_dependency(%q<json>)
   s.add_dependency(%q<tzinfo>)
-  s.add_dependency(%q<eventmachine>)
   
+  s.add_development_dependency "rspec"
+  s.add_development_dependency "ZenTest"
+  s.add_development_dependency "spork"
+  
+  # s.add_runtime_dependency "rest-client"
 end

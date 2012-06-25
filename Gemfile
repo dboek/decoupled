@@ -1,11 +1,5 @@
 source "http://rubygems.org"
 
-# Use dependencies from gemspec file
+#ruby "1.9.3", :engine => "jruby", :engine_version => "1.7.0.preview1"
+# Specify your gem's dependencies in decoupled.gemspec
 gemspec
-
-# execute manager
-# ruby -Ilib ./bin/decoupled_manager
-
-gem 'evented-spec'
-gem 'rspec'
-gem 'ZenTest'

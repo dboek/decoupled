@@ -1,38 +1,33 @@
 #!/usr/bin/env ruby
 # coding: utf-8
+#require 'rubygems'
 
 # Load all files in the directory decoupled is started from
+$LOAD_PATH[0,0] = File.join(File.dirname(__FILE__), '..', 'lib')
 $LOAD_PATH << Dir.pwd
+#$LOAD_PATH << '.'
 
 require 'rubygems'
 require 'optparse'
-require 'amqp'
 require 'redis'
-require 'decoupled/util'
-require 'decoupled/consumer'
-require 'decoupled/producer'
+require 'decoupled'
 
 options = {}
 
 optparse = OptionParser.new do |opts|
   
-  opts.on('-q', '--queue_name QUEUE_NAME', "name of the queue this consumer will subscribe to") do |queue_name|            
+  opts.on('-q', '--queue-name QUEUE_NAME', "name of the queue this consumer will subscribe to") do |queue_name|            
     options[:queue_name] = queue_name
-  end       
-
-  options[:count] = 1
-  opts.on('-c', '--count PREFETCH_COUNT', Integer, "Number of message the consumer will process in parallel (default => #{options[:count]})") do |prefetch_count|            
-    options[:prefetch_count] = prefetch_count
-  end       
-   
-  opts.on('-j', '--job_class JOB_CLASS', "JobClass the consumer will invoke when a message arrives") do |job_class|           
-    options[:job_class] = job_class
-  end 
-  
-  options[:amqp_host] = '127.0.0.1'
-  opts.on('-a', '--amqp_host AMQP_HOST', "AMQP needs a Host to connect to (default => #{options[:amqp_host]})") do |amqp_host|           
-    options[:amqp_host] = amqp_host
   end
+
+  opts.on('-k', '--job-klass JOB_KLASS', "Please specify a Class Template where Your Jobs will be executed in") do |job_klass|
+    options[:job_klass] = job_klass
+  end
+
+  options[:concurrent_count] = 3
+  opts.on('-c', '--job-count JOB_COUNT', Integer, "Number of message the consumer will process in parallel (default => #{options[:concurrent_count]})") do |concurrent_count|            
+    options[:concurrent_count] = concurrent_count
+  end       
   
   options[:environment] = 'development'
   opts.on('-e', '--environment DECOUPLED', "decoupled environment can be used in the jobs (default => #{options[:environment]})") do |environment|           
@@ -47,7 +42,7 @@ end
 
 begin       
   optparse.parse!                 
-  mandatory = [:job_class, :queue_name]                   
+  mandatory = [:queue_name, :concurrent_count, :job_klass]
   missing = mandatory.select{ |param| options[param].nil? }        
   if not missing.empty?
     puts "Missing options: #{missing.join(', ')}"                  
@@ -61,26 +56,27 @@ rescue OptionParser::InvalidOption, OptionParser::MissingArgument
 end
 
 ENV['DECOUPLED'] = options[:environment]
-# All option parsed successfully
-# Show process Starting information
-puts "Starting decoupled:consumer"
-$0 = "Starting decoupled:consumer"
-$stdout.sync = true
 
-require Decoupled::String.underscore(options[:job_class])
-  
-AMQP.start(:host => options[:amqp_host]) do |connection, open_ok|
-  consumer_name = "#{`hostname`.chomp}-#{Process.pid}"
-  
-  channel   = AMQP::Channel.new(connection)
-  consumer = Decoupled::Consumer.new(consumer_name, channel, options[:queue_name], options[:prefetch_count], options[:job_class])
-  consumer.start
+require Decoupled::String.underscore(options[:job_klass])
 
-  $0 = "decoupled:consumer subscribed to => #{options[:queue_name]}"
-  # Stop the worker
-  trap('TERM') { puts "\n stopping consumer"; connection.close { EventMachine.stop } }
-  trap('INT')  { puts "\n stopping consumer"; connection.close { EventMachine.stop } }
+begin
+  puts 'starting Decoupled Consumer with:'
+  puts "environment:      #{options[:environment]}"
+  puts "concurrent_count: #{options[:concurrent_count]}"
+  puts "job_klass:        #{options[:job_klass]}"
+
+  @consumer = Decoupled::Consumer.new(options[:concurrent_count], options[:job_klass])
+  @consumer.start
+
+  trap("INT") { 
+    puts 'shutting down decoupled, can take some time...'
+    loop = false
+    @consumer.close_connections
+
+    exit 2
+  }
+rescue => e
+  puts "error #{e}"
+  @consumer.close_connections
 end
 
-# optparse with help from: 
-# http://stackoverflow.com/questions/1541294/how-do-you-specify-a-required-switch-not-argument-with-ruby-optionparser

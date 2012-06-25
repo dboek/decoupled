@@ -1,10 +1,7 @@
 PATH
   remote: .
   specs:
-    decoupled (0.1.0)
-      amqp (~> 0.8.0)
-      bson_ext
-      eventmachine
+    decoupled (0.0.1)
       json
       redis
       tzinfo
@@ -12,38 +9,26 @@ PATH
 GEM
   remote: http://rubygems.org/
   specs:
-    ZenTest (4.6.2)
-    amq-client (0.8.7)
-      amq-protocol (>= 0.8.4)
-      eventmachine
-    amq-protocol (0.8.4)
-    amqp (0.8.4)
-      amq-client (~> 0.8.7)
-      amq-protocol (~> 0.8.4)
-      eventmachine
-    bson (1.5.2)
-    bson_ext (1.5.2)
-      bson (= 1.5.2)
+    ZenTest (4.8.1)
     diff-lcs (1.1.3)
-    evented-spec (0.9.0)
-    eventmachine (0.12.10)
-    json (1.6.4)
-    redis (2.2.2)
-    rspec (2.7.0)
-      rspec-core (~> 2.7.0)
-      rspec-expectations (~> 2.7.0)
-      rspec-mocks (~> 2.7.0)
-    rspec-core (2.7.1)
-    rspec-expectations (2.7.0)
-      diff-lcs (~> 1.1.2)
-    rspec-mocks (2.7.0)
-    tzinfo (0.3.31)
+    json (1.7.3-java)
+    redis (3.0.1)
+    rspec (2.10.0)
+      rspec-core (~> 2.10.0)
+      rspec-expectations (~> 2.10.0)
+      rspec-mocks (~> 2.10.0)
+    rspec-core (2.10.1)
+    rspec-expectations (2.10.0)
+      diff-lcs (~> 1.1.3)
+    rspec-mocks (2.10.1)
+    spork (0.9.2)
+    tzinfo (0.3.33)
 
 PLATFORMS
-  ruby
+  java
 
 DEPENDENCIES
   ZenTest
   decoupled!
-  evented-spec
   rspec
+  spork

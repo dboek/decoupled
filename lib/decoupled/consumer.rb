@@ -1,83 +1,113 @@
 # coding: utf-8
-module Decoupled
-	class Consumer
-	  #
-	  def initialize(consumer_name, channel, queue_name, jobs_per_consumer = 1, process_class)
-	    @active_jobs = 0
-	    @processed_jobs = 0
-	    @job_errors = 0
-	    
-	    @started_at = Time.now
-	    @consumer_name = consumer_name
-	    @prefetch_count = jobs_per_consumer
-	    @queue_name = queue_name
-	
-	    @channel = channel
-	    @channel.prefetch(@prefetch_count)
-	    @channel.on_error(&method(:handle_channel_exception))
-	    
-	    klass = Object.const_get(process_class)
-	    @process_class = klass
-	  end
-	
-	  def start
-	    @queue = @channel.queue(@queue_name, :exclusive => false)
-	    @queue.subscribe(:ack => true, &self.method(:process_work))
-	    listen_for_manager
-	  end
-	  
-	  def listen_for_manager
-	    # The Manager calls this queue to check on the workers, they need to answer, if they are still available
-	    exchange = @channel.topic("decoupled.worker", :auto_delete => false)
-	
-	    queue = @channel.queue("", :exclusive => true, :auto_delete => true).bind(exchange)
-	    queue.subscribe do |payload|
-	      status = {
-	        'name' => @consumer_name,
-	        'prefetch_count' => @prefetch_count,
-	        'active_jobs' => @active_jobs,
-	        'processed_jobs' => @processed_jobs,
-	        'job_errors' => @job_errors,
-	        'last_answer' => Time.now.to_i,
-	        'started_at' => @started_at.strftime('%d.%m.%Y %H:%M:%S'),
-	      }
-	      @channel.direct('').publish( status.to_json, :routing_key => 'decoupled.manager' )
-	    end
-	  end
-	  
-	  def process_work(metadata, payload)
-	    @active_jobs += 1
-	    
-	    operation = proc {
-	      begin
-	        # Later it could be better to have a worker manage more than one message queue and class
-	        payload_hash = JSON.parse(payload)
-	        @process_class.process_task(payload_hash)
-	        @processed_jobs += 1
-	      rescue Exception => e
-	        @job_errors += 1
-	        save_error_to_mongo(payload_hash['api_identifier'], e, payload)
-	      end
-	    }
-	    
-	    callback = proc { |result|
-	      @active_jobs -= 1
-	      @channel.acknowledge(metadata.delivery_tag, false)
-	    }
-	    
-	    EventMachine.defer(operation, callback)
-	  end
-	  
-	  def save_error_to_mongo(api, error, payload)
-	    begin
-	      # TODO implement it
-	    rescue Exception => e
-	      # silent error
-	    end
-	  end
-	  
-	  def handle_channel_exception(channel, channel_close)
-	    puts "Channel-level exception: code = #{channel_close.reply_code}, message = #{channel_close.reply_text}"
-	  end
-	end
+class Decoupled::Consumer
+
+  attr_accessor :executor, :channel, :msg_conn, :db_conn, :concurrent, :job_klass
+
+  def initialize(concurrent, job_klass)
+    @concurrent = concurrent
+    @job_klass  = job_klass
+    @job_count  = 1
+
+    @count  = java.util.concurrent.atomic.AtomicInteger.new
+    
+    # Instance Objects to be stopped by the decoupled instance
+    puts "Creating ThreadPool of => #{@concurrent}"
+    @executor = Executors.newFixedThreadPool(@concurrent)
+    
+    puts 'Creating AMQP Connection'
+    @msg_conn = amqp_connection
+    puts 'Creating Channel'
+    @channel = @msg_conn.createChannel
+
+    # Database Connection
+    opts    = MongoOptions.new
+    opts.connectionsPerHost = @concurrent
+    puts 'Creating MongoDB Pooled Connection'
+    @db_conn  = Mongo.new( "localhost:27017", opts )
+  end
+
+  def do_work(payload)
+    @executor.submit do
+      @count.incrementAndGet
+
+      begin
+        work = Decoupled::Worker.new(@count, @db_conn, payload)
+        work.execute(@job_klass)
+
+      rescue Exception => e
+        @count.decrementAndGet
+        puts e
+      end
+
+    end
+  end
+
+  def start
+    begin
+      # Consumer subscription to queue
+      autoAck = false;
+      exchangeName  = 'livesearch'
+      queueName     = 'livesearch'
+      routingKey    = ''
+
+      puts "binding channel to => #{exchangeName}"
+      @channel.exchangeDeclare(exchangeName, "direct", true);
+      @channel.queueDeclare(queueName, true, false, false, nil);
+      @channel.queueBind(queueName, exchangeName, routingKey);
+
+      loop = true
+
+      while loop do
+        puts "worker threads busy #{@count.get}"
+
+        while @count.get < @concurrent do
+          puts '=> checking for new messages'
+          response = @channel.basicGet(queueName, autoAck);
+
+          if not response
+            # No message retrieved.
+            sleep(3)
+          else
+            #AMQP.BasicProperties props = response.getProps();
+            delivery_tag = response.get_envelope.get_delivery_tag
+            message_body = Marshal.load(String.from_java_bytes( response.getBody() ))
+            puts @job_count
+            do_work(message_body)
+
+            @channel.basicAck(delivery_tag, false);
+            @job_count += 1
+          end
+        end
+        puts "amqp going to sleep #{Time.now.usec}"
+        sleep(10)
+      end
+
+    rescue Exception => e
+      puts e
+    end
+  end
+
+  # All connections need to be closed, otherwise
+  # the process will hang and exit will not work.
+  def close_connections
+    puts 'closing connections'
+    @executor.shutdown
+    @channel.close
+    @msg_conn.close
+  end
+
+  private
+
+  # @return Connection to RabbitMQ Server
+  def amqp_connection
+    factory = ConnectionFactory.new 
+    #factory.setUsername(userName)
+    #factory.setPassword(password)
+    #factory.setVirtualHost(virtualHost)
+    #factory.setHost(hostName)
+    #factory.setPort(portNumber)
+    
+    factory.newConnection
+  end
+
 end
