@@ -51,9 +51,8 @@ class Decoupled::Consumer
       routingKey    = ''
 
       puts "binding channel to => #{exchangeName}"
-      @channel.exchangeDeclare(exchangeName, "direct", true);
-      @channel.queueDeclare(queueName, true, false, false, nil);
-      @channel.queueBind(queueName, exchangeName, routingKey);
+      @channel.exchangeDeclare(exchangeName, "direct", true)
+      @channel.queueBind(queueName, exchangeName, routingKey)
 
       loop = true
 
@@ -70,11 +69,11 @@ class Decoupled::Consumer
           else
             #AMQP.BasicProperties props = response.getProps();
             delivery_tag = response.get_envelope.get_delivery_tag
-            message_body = Marshal.load(String.from_java_bytes( response.getBody() ))
+            message_body = JSON::parse( String.from_java_bytes(response.getBody()) )
             puts @job_count
             do_work(message_body)
 
-            @channel.basicAck(delivery_tag, false);
+            @channel.basicAck(delivery_tag, false)
             @job_count += 1
           end
         end
