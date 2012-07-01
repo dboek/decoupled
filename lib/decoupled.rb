@@ -1,4 +1,5 @@
 require "decoupled/version"
+require 'json'
 require 'java'
 require File.dirname(__FILE__) + '/jars/commons-cli-1.1.jar'
 require File.dirname(__FILE__) + '/jars/commons-io-1.2.jar'

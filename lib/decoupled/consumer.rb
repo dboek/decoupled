@@ -1,11 +1,12 @@
 # coding: utf-8
 class Decoupled::Consumer
 
-  attr_accessor :executor, :channel, :msg_conn, :db_conn, :concurrent, :job_klass
+  attr_accessor :executor, :channel, :msg_conn, :db_conn, :concurrent, :job_klass, :amqp_host
 
-  def initialize(concurrent, job_klass)
-    @concurrent = concurrent
-    @job_klass  = job_klass
+  def initialize(options)
+    @concurrent = options[:concurrent_count]
+    @job_klass  = options[:job_klass]
+    @amqp_host  = options[:amqp_host]
     @job_count  = 1
 
     @count  = java.util.concurrent.atomic.AtomicInteger.new
@@ -51,9 +52,8 @@ class Decoupled::Consumer
       routingKey    = ''
 
       puts "binding channel to => #{exchangeName}"
-      @channel.exchangeDeclare(exchangeName, "direct", true);
-      @channel.queueDeclare(queueName, true, false, false, nil);
-      @channel.queueBind(queueName, exchangeName, routingKey);
+      @channel.exchangeDeclare(exchangeName, "direct", true)
+      @channel.queueBind(queueName, exchangeName, routingKey)
 
       loop = true
 
@@ -70,11 +70,11 @@ class Decoupled::Consumer
           else
             #AMQP.BasicProperties props = response.getProps();
             delivery_tag = response.get_envelope.get_delivery_tag
-            message_body = Marshal.load(String.from_java_bytes( response.getBody() ))
+            message_body = JSON.parse( String.from_java_bytes(response.getBody()) )
             puts @job_count
             do_work(message_body)
 
-            @channel.basicAck(delivery_tag, false);
+            @channel.basicAck(delivery_tag, false)
             @job_count += 1
           end
         end
@@ -104,7 +104,7 @@ class Decoupled::Consumer
     #factory.setUsername(userName)
     #factory.setPassword(password)
     #factory.setVirtualHost(virtualHost)
-    #factory.setHost(hostName)
+    factory.setHost(@amqp_host)
     #factory.setPort(portNumber)
     
     factory.newConnection

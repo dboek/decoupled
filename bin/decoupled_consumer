@@ -34,6 +34,11 @@ optparse = OptionParser.new do |opts|
     options[:environment] = environment
   end
 
+  options[:amqp_host] = 'localhost'
+  opts.on('-a', '--amqp_host localhost', "amqp server you want to connect to (default => #{options[:amqp_host]})") do |amqp_host|           
+    options[:amqp_host] = amqp_host
+  end
+
   opts.on('-h', '--help', 'Help messages') do     
     puts opts                     
     exit    
@@ -65,7 +70,7 @@ begin
   puts "concurrent_count: #{options[:concurrent_count]}"
   puts "job_klass:        #{options[:job_klass]}"
 
-  @consumer = Decoupled::Consumer.new(options[:concurrent_count], options[:job_klass])
+  @consumer = Decoupled::Consumer.new(options)
   @consumer.start
 
   trap("INT") { 
