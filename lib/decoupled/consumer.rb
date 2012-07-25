@@ -8,6 +8,7 @@ class Decoupled::Consumer
     @job_klass  = options[:job_klass]
     @amqp_host  = options[:amqp_host]
     @job_count  = 1
+    @msg_queue  = options[:queue_name]
 
     @count  = java.util.concurrent.atomic.AtomicInteger.new
     
@@ -47,8 +48,8 @@ class Decoupled::Consumer
     begin
       # Consumer subscription to queue
       autoAck = false;
-      exchangeName  = 'livesearch'
-      queueName     = 'livesearch'
+      exchangeName  = @msg_queue #'livesearch'
+      queueName     = @msg_queue #'livesearch'
       routingKey    = ''
 
       puts "binding channel to => #{exchangeName}"

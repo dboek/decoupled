@@ -41,7 +41,7 @@ optparse = OptionParser.new do |opts|
 
   options[:folders] = Array.new
   opts.on('-f', '--folders FOLDER_NAMES', "folders you want to add to (default => #{options[:folders]})") do |folders|           
-    options[:folders].push folders
+    options[:folders] = folders.split(",")
   end
 
   opts.on('-h', '--help', 'Help messages') do     
