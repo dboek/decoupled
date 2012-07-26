@@ -39,6 +39,11 @@ optparse = OptionParser.new do |opts|
     options[:amqp_host] = amqp_host
   end
 
+  options[:folders] = Array.new
+  opts.on('-f', '--folders FOLDER_NAMES', "folders you want to add to (default => #{options[:folders]})") do |folders|           
+    options[:folders] = folders.split(",")
+  end
+
   opts.on('-h', '--help', 'Help messages') do     
     puts opts                     
     exit    
@@ -62,6 +67,9 @@ end
 
 ENV['DECOUPLED'] = options[:environment]
 
+for folder in options[:folders]
+  $LOAD_PATH << File.join(Dir.pwd, "#{folder}")
+end
 require Decoupled::String.underscore(options[:job_klass])
 
 begin
@@ -69,6 +77,7 @@ begin
   puts "environment:      #{options[:environment]}"
   puts "concurrent_count: #{options[:concurrent_count]}"
   puts "job_klass:        #{options[:job_klass]}"
+  puts "folders:          #{options[:folders].empty? ? "" : options[:folders].join(",")}"
 
   @consumer = Decoupled::Consumer.new(options)
   @consumer.start
