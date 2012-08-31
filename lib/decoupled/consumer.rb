@@ -4,28 +4,39 @@ class Decoupled::Consumer
   attr_accessor :executor, :channel, :msg_conn, :db_conn, :concurrent, :job_klass, :amqp_host
 
   def initialize(options)
-    @concurrent = options[:concurrent_count]
-    @job_klass  = options[:job_klass]
-    @amqp_host  = options[:amqp_host]
-    @job_count  = 1
-    @msg_queue  = options[:queue_name]
+    @concurrent     = options[:concurrent_count]
+    @job_klass      = options[:job_klass]
+    @amqp_host      = options[:amqp_host]
+    @amqp_fallbacks = options[:amqp_fallbacks]
+    @job_count      = 1
+    @msg_queue      = options[:queue_name]
 
     @count  = java.util.concurrent.atomic.AtomicInteger.new
     
     # Instance Objects to be stopped by the decoupled instance
-    puts "Creating ThreadPool of => #{@concurrent}"
+    puts "|"
+    puts "| Creating ThreadPool of => #{@concurrent}"
     @executor = Executors.newFixedThreadPool(@concurrent)
     
-    puts 'Creating AMQP Connection'
+    puts "| Creating AMQP Connection on Host: #{@amqp_host}"
+    if @amqp_fallbacks.length > 1
+      puts "| AMQP Fallbacks: #{@amqp_fallbacks.join(",")}"
+    end
     @msg_conn = amqp_connection
-    puts 'Creating Channel'
+    puts '| Creating Channel'
     @channel = @msg_conn.createChannel
 
     # Database Connection
-    opts    = MongoOptions.new
+    opts                    = MongoOptions.new
     opts.connectionsPerHost = @concurrent
-    puts 'Creating MongoDB Pooled Connection'
-    @db_conn  = Mongo.new( "localhost:27017", opts )
+    if options[:environment] == "development"
+      @db_conn = Mongo.new( "localhost:27017", opts )
+      port = "27017"
+    else
+      @db_conn = Mongo.new( "localhost:27020", opts )
+      port = "27020"
+    end
+    puts "| Creating MongoDB Pooled Connection on Port: #{port}"  
   end
 
   def do_work(payload)
@@ -48,13 +59,21 @@ class Decoupled::Consumer
     begin
       # Consumer subscription to queue
       autoAck = false;
-      exchangeName  = @msg_queue #'livesearch'
-      queueName     = @msg_queue #'livesearch'
+      exchangeName  = @msg_queue
+      queueName     = @msg_queue
       routingKey    = ''
 
-      puts "binding channel to => #{exchangeName}"
+      puts "|"
+      puts "| binding channel to => #{exchangeName}"
+
       @channel.exchangeDeclare(exchangeName, "direct", true)
+      @channel.queueDeclare(queueName, false, false, false, nil)
       @channel.queueBind(queueName, exchangeName, routingKey)
+
+      puts "|"
+      puts "| Consumer ready for work now"
+      puts '+-------------------------------------------------------------'
+      puts ""
 
       loop = true
 

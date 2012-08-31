@@ -23,6 +23,7 @@ java_import com.mongodb.DBCollection
 java_import com.mongodb.BasicDBObject
 java_import com.mongodb.DBObject
 java_import com.mongodb.DBCursor
+java_import org.bson.types.ObjectId
 # RabbitMQ imports
 java_import com.rabbitmq.client.Connection
 java_import com.rabbitmq.client.Channel
