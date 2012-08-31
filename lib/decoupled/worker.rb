@@ -1,6 +1,4 @@
 # coding: utf-8
-require 'nokogiri'
-require 'mechanize'
 
 class Decoupled::Worker
 
@@ -16,46 +14,6 @@ class Decoupled::Worker
     jk.execute_work( @payload, @m )
 
     @count.decrementAndGet
-  end
-
-  #def execute
-  #  begin
-  #    agent = Mechanize.new
-  #    agent.max_history = 1
-  #    puts @payload
-  #    page = agent.get('http://www.' + @payload)
-  #    page.body.force_encoding('utf-8')
-  #    doc = Nokogiri::HTML( page.body )
-#
-  #    puts page.title.force_encoding('utf-8')
-  #  rescue => e
-  #    puts e.inspect
-  #  end
-#
-  #  worked_for = rand(5)
-  #  sleep( worked_for )
-  #  
-  #  @count.decrementAndGet
-  #end
-
-  def mongo_test_calls
-    doc = BasicDBObject.new
-
-    doc.put('name', 'Daniel')
-
-    addr = BasicDBObject.new
-    addr.put('street', 'Lindenstr.')
-    addr.put('city', 'Lüneburg')
-
-    doc.put('address', addr)
-
-    db = @m.getDB( "jruby_tests" )
-    db.requestStart()
-
-    coll = db.getCollection('names')
-    coll.insert(doc)
-
-    db.requestDone()
   end
 
 end
