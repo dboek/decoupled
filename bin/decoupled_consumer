@@ -11,6 +11,7 @@ require 'rubygems'
 require 'optparse'
 require 'redis'
 require 'decoupled'
+require 'yaml'
 
 options = {}
 
@@ -36,12 +37,25 @@ optparse = OptionParser.new do |opts|
 
   options[:amqp_host] = 'localhost'
   opts.on('-a', '--amqp_host localhost', "amqp server you want to connect to (default => #{options[:amqp_host]})") do |amqp_host|           
-    options[:amqp_host] = amqp_host
+    options[:amqp_host]      = amqp_host.split(",").first
+    options[:amqp_fallbacks] = Array.new
+    first = false
+    for fallback in amqp_host.split(",")
+      unless first
+         options[:amqp_fallbacks].push fallback
+       else
+        first = true
+      end
+    end
   end
 
   options[:folders] = Array.new
   opts.on('-f', '--folders FOLDER_NAMES', "folders you want to add to (default => #{options[:folders]})") do |folders|           
     options[:folders] = folders.split(",")
+  end
+
+  opts.on('-o', '--config CONFIGFILE', "name of the config file you want to use (default => no config file). If config file is specified options will be added from there!") do |config_file|            
+    options[:config_file] = config_file
   end
 
   opts.on('-h', '--help', 'Help messages') do     
@@ -52,17 +66,84 @@ end
 
 begin       
   optparse.parse!                 
-  mandatory = [:queue_name, :concurrent_count, :job_klass]
-  missing = mandatory.select{ |param| options[param].nil? }        
-  if not missing.empty?
-    puts "Missing options: #{missing.join(', ')}"                  
-    puts optparse      
-    exit               
+  if options[:config_file].nil?             
+    mandatory = [:queue_name, :concurrent_count, :job_klass]
+    missing = mandatory.select{ |param| options[param].nil? }        
+    if not missing.empty?
+      puts "Missing options: #{missing.join(', ')}"                  
+      puts optparse      
+      exit       
+    end
+  else
+    # Loading Configfile is option parameter is set
+    begin
+      file_exists = true
+
+      config_file = ""
+      if options[:config_file].include? ".yml"
+        config_file = options[:config_file]
+      else
+        config_file = options[:config_file]+".yml"
+      end
+      fn  = File.dirname(Dir.pwd) + "/config/#{config_file}"
+      cnf = YAML::load(File.open(fn)) 
+
+      puts "Loading parameters from config file..."
+      puts ""
+    rescue Exception => e 
+      if e == "No such file or directory"
+        puts "#{e} - Looking for option parameters instead."
+        file_exists = false
+      end 
+    end
   end
 rescue OptionParser::InvalidOption, OptionParser::MissingArgument  
   puts $!.to_s         
   puts optparse        
   exit
+end
+
+# Loading parameters from config file
+if file_exists
+  loading_error = false
+  errors        = Array.new
+
+  options[:concurrent_count] = cnf["concurrent_count"].nil? ? 3 : cnf["concurrent_count"]
+  options[:environment]      = cnf["environment"].nil? ? "development" : cnf["environment"]
+  options[:logging]          = cnf["logging"].nil? ? "off" : cnf["logging"] == "" ? "off" : cnf["logging"]
+  options[:folders]          = cnf["folders"].nil? ? Array.new : cnf["folders"].split(",")
+  options[:amqp_host]        = cnf["amqp_host"].nil? ? "localhost" : cnf["amqp_host"].split(",").first
+  options[:amqp_fallbacks]   = Array.new
+  first = false
+  for fallback in cnf["amqp_host"].split(",")
+    unless first
+       options[:amqp_fallbacks].push fallback
+     else
+      first = true
+    end
+  end
+
+  if cnf["queue_name"].nil?
+    errors.push "No queue specified"
+    loading_error = true
+  else
+    options[:queue_name] = cnf["queue_name"]
+  end
+  
+  if cnf["job_klass"].nil?
+    errors.push "No job class specified"
+    loading_error = true
+  else
+    options[:job_klass] = cnf["job_klass"]
+  end
+
+  if loading_error
+    puts "Exception while loading"
+    for error in errors
+      puts "- #{error}"
+    end
+    exit
+  end
 end
 
 ENV['DECOUPLED'] = options[:environment]
@@ -73,11 +154,17 @@ end
 require Decoupled::String.underscore(options[:job_klass])
 
 begin
-  puts 'starting Decoupled Consumer with:'
-  puts "environment:      #{options[:environment]}"
-  puts "concurrent_count: #{options[:concurrent_count]}"
-  puts "job_klass:        #{options[:job_klass]}"
-  puts "folders:          #{options[:folders].empty? ? "" : options[:folders].join(",")}"
+  puts '+-------------------------------------------------------------'
+  puts "| starting Decoupled Consumer with the following parameters:"
+  puts "|"
+  if options[:config_file]
+    puts "| configfile:       #{config_file}"
+    puts "|"
+  end
+  puts "| environment:      #{options[:environment]}"
+  puts "| concurrent count: #{options[:concurrent_count]}"
+  puts "| job class:        #{options[:job_klass]}"
+  puts "| custom folders:   #{options[:folders].empty? ? "" : options[:folders].join(",")}"
 
   @consumer = Decoupled::Consumer.new(options)
   @consumer.start
@@ -86,11 +173,9 @@ begin
     puts 'shutting down decoupled, can take some time...'
     loop = false
     @consumer.close_connections
-
     exit 2
   }
 rescue => e
   puts "error #{e}"
   @consumer.close_connections
 end
-

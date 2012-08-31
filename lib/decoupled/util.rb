@@ -1,3 +1,4 @@
+# coding: utf-8
 module Decoupled
   
   # http://api.rubyonrails.org/classes/ActiveSupport/Inflector.html#method-i-underscore
