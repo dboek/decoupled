@@ -35,6 +35,11 @@ optparse = OptionParser.new do |opts|
     options[:environment] = environment
   end
 
+  options[:redis_host] = 'localhost'
+  opts.on('-e', '--redis_host localhost', "redis host you want to connect to (default => #{options[:redis_host]})") do |redis_host|           
+    options[:redis_host] = redis_host
+  end  
+
   options[:amqp_host] = 'localhost'
   opts.on('-a', '--amqp_host localhost', "amqp server you want to connect to (default => #{options[:amqp_host]})") do |amqp_host|           
     options[:amqp_host]      = amqp_host.split(",").first
@@ -112,6 +117,7 @@ if file_exists
   options[:environment]      = cnf["environment"].nil? ? "development" : cnf["environment"]
   options[:logging]          = cnf["logging"].nil? ? "off" : cnf["logging"] == "" ? "off" : cnf["logging"]
   options[:folders]          = cnf["folders"].nil? ? Array.new : cnf["folders"].split(",")
+  options[:redis_host]       = cnf["redis_host"].nil? ? "localhost" : cnf["redis_host"]
   options[:amqp_host]        = cnf["amqp_host"].nil? ? "localhost" : cnf["amqp_host"].split(",").first
   options[:amqp_fallbacks]   = Array.new
   first = false
@@ -154,8 +160,10 @@ end
 require Decoupled::String.underscore(options[:job_klass])
 
 begin
-  puts '+-------------------------------------------------------------'
-  puts "| starting Decoupled Consumer with the following parameters:"
+  options[:consumer_name] = "#{`hostname`.chomp}-#{Process.pid}"
+
+  puts '+---------------------------------------------------------------------------------------------'
+  puts "| starting Decoupled Consumer (#{options[:consumer_name]}) with the following parameters:"
   puts "|"
   if options[:config_file]
     puts "| configfile:       #{config_file}"
@@ -168,6 +176,13 @@ begin
 
   @consumer = Decoupled::Consumer.new(options)
   @consumer.start
+
+  trap("TERM") { 
+    puts 'shutting down decoupled, can take some time...'
+    loop = false
+    @consumer.close_connections
+    exit 2
+  }
 
   trap("INT") { 
     puts 'shutting down decoupled, can take some time...'
