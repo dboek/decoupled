@@ -4,6 +4,10 @@ class Decoupled::Consumer
   attr_accessor :executor, :channel, :msg_conn, :db_conn, :concurrent, :job_klass, :amqp_host
 
   def initialize(options)
+    @job_errors     = 0
+    @processed_jobs = 0
+    @consumer_name  = options[:consumer_name]
+
     @concurrent     = options[:concurrent_count]
     @job_klass      = options[:job_klass]
     @amqp_host      = options[:amqp_host]
@@ -17,6 +21,9 @@ class Decoupled::Consumer
     puts "|"
     puts "| Creating ThreadPool of => #{@concurrent}"
     @executor = Executors.newFixedThreadPool(@concurrent)
+
+    puts "| Creating Redis Connection on Host: #{@redis_host}"
+    @redis_conn = Redis.new(:host => @redis_host) 
     
     puts "| Creating AMQP Connection on Host: #{@amqp_host}"
     if @amqp_fallbacks.length > 1
@@ -46,7 +53,7 @@ class Decoupled::Consumer
       begin
         work = Decoupled::Worker.new(@count, @db_conn, payload)
         work.execute(@job_klass)
-
+        @processed_jobs += 1
       rescue Exception => e
         @count.decrementAndGet
         puts e
@@ -72,10 +79,15 @@ class Decoupled::Consumer
 
       puts "|"
       puts "| Consumer ready for work now"
-      puts '+-------------------------------------------------------------'
+      puts '+---------------------------------------------------------------------------------------------'
       puts ""
 
       loop = true
+
+      @started_at    = Time.now
+      @last_answer   = @started_at
+      @init_consumer = @started_at
+      listen_for_manager
 
       while loop do
         puts "worker threads busy #{@count.get}"
@@ -83,6 +95,12 @@ class Decoupled::Consumer
         while @count.get < @concurrent do
           puts '=> checking for new messages'
           response = @channel.basicGet(queueName, autoAck);
+
+          @last_answer = Time.now
+          if (@last_answer - @init_consumer.to_i) > 30
+            @init_consumer = @last_answer
+            listen_for_manager
+          end
 
           if not response
             # No message retrieved.
@@ -107,10 +125,34 @@ class Decoupled::Consumer
     end
   end
 
+  # Saving current status of the consumer
+  def listen_for_manager
+    consumer_status = @count.get > 0 ? "working" : "running"
+    status = {
+      'name'           => @consumer_name,
+      'queue_name'     => @msg_queue,
+      'prefetch_count' => @concurrent,
+      'active_jobs'    => @count.get,
+      'processed_jobs' => @processed_jobs,
+      'job_errors'     => @job_errors,
+      'last_answer'    => @last_answer.to_i,
+      'status'         => consumer_status,
+      'started_at'     => @started_at.strftime('%d.%m.%Y %H:%M:%S'),
+    }
+    @redis_conn.hset('decoupled.consumers', @consumer_name, status.to_json)
+  end
+
+  # Remove Consumer from redis queue list while closing connection
+  def remove_from_queue_list
+    puts "Removing #{@consumer_name} from Queue List"
+    @redis_conn.hdel('decoupled.consumers', @consumer_name)
+  end
+
   # All connections need to be closed, otherwise
   # the process will hang and exit will not work.
   def close_connections
     puts 'closing connections'
+    remove_from_queue_list
     @executor.shutdown
     @channel.close
     @msg_conn.close
