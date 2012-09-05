@@ -14,6 +14,7 @@ class Decoupled::Consumer
     @amqp_fallbacks = options[:amqp_fallbacks]
     @job_count      = 1
     @msg_queue      = options[:queue_name]
+    @redis_host     = options[:redis_host]
 
     @count  = java.util.concurrent.atomic.AtomicInteger.new
     
@@ -22,9 +23,14 @@ class Decoupled::Consumer
     puts "| Creating ThreadPool of => #{@concurrent}"
     @executor = Executors.newFixedThreadPool(@concurrent)
 
-    puts "| Creating Redis Connection on Host: #{@redis_host}"
-    @redis_conn = Redis.new(:host => @redis_host) 
-    
+    @no_status = false
+    if @redis_host != ""
+      puts "| Creating Redis Connection on Host: #{@redis_host}"
+      @redis_conn = Redis.new(:host => @redis_host) 
+    else
+      @no_status = true
+    end
+
     puts "| Creating AMQP Connection on Host: #{@amqp_host}"
     if @amqp_fallbacks.length > 1
       puts "| AMQP Fallbacks: #{@amqp_fallbacks.join(",")}"
@@ -97,7 +103,7 @@ class Decoupled::Consumer
           response = @channel.basicGet(queueName, autoAck);
 
           @last_answer = Time.now
-          if (@last_answer - @init_consumer.to_i) > 30
+          if (@last_answer.to_i - @init_consumer.to_i) > 30
             @init_consumer = @last_answer
             listen_for_manager
           end
@@ -139,7 +145,9 @@ class Decoupled::Consumer
       'status'         => consumer_status,
       'started_at'     => @started_at.strftime('%d.%m.%Y %H:%M:%S'),
     }
-    @redis_conn.hset('decoupled.consumers', @consumer_name, status.to_json)
+    unless @no_status
+      @redis_conn.hset('decoupled.consumers', @consumer_name, status.to_json)
+    end
   end
 
   # Remove Consumer from redis queue list while closing connection
@@ -152,7 +160,9 @@ class Decoupled::Consumer
   # the process will hang and exit will not work.
   def close_connections
     puts 'closing connections'
-    remove_from_queue_list
+    unless @no_status
+      remove_from_queue_list
+    end
     @executor.shutdown
     @channel.close
     @msg_conn.close
