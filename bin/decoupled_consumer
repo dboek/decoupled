@@ -117,7 +117,7 @@ if file_exists
   options[:environment]      = cnf["environment"].nil? ? "development" : cnf["environment"]
   options[:logging]          = cnf["logging"].nil? ? "off" : cnf["logging"] == "" ? "off" : cnf["logging"]
   options[:folders]          = cnf["folders"].nil? ? Array.new : cnf["folders"].split(",")
-  options[:redis_host]       = cnf["redis_host"].nil? ? "localhost" : cnf["redis_host"]
+  options[:redis_host]       = cnf["redis_host"].nil? ? "" : cnf["redis_host"]
   options[:amqp_host]        = cnf["amqp_host"].nil? ? "localhost" : cnf["amqp_host"].split(",").first
   options[:amqp_fallbacks]   = Array.new
   first = false
@@ -161,6 +161,7 @@ require Decoupled::String.underscore(options[:job_klass])
 
 begin
   options[:consumer_name] = "#{`hostname`.chomp}-#{Process.pid}"
+  $0 = "starting decoupled:consumer #{options[:consumer_name]} with environment #{options[:environment]}"
 
   puts '+---------------------------------------------------------------------------------------------'
   puts "| starting Decoupled Consumer (#{options[:consumer_name]}) with the following parameters:"
@@ -177,7 +178,16 @@ begin
   @consumer = Decoupled::Consumer.new(options)
   @consumer.start
 
+  $0 = "decoupled:consumer subscribed to => #{options[:queue_name]} on RabbitmqServer: #{options[:amqp_host]} | #{options[:consumer_name]} with Prefetch #{options[:concurrent_count]}"
+
   trap("TERM") { 
+    puts 'shutting down decoupled, can take some time...'
+    loop = false
+    @consumer.close_connections
+    exit 2
+  }
+
+  trap("SIGINT") {
     puts 'shutting down decoupled, can take some time...'
     loop = false
     @consumer.close_connections
