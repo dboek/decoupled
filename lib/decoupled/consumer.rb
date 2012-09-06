@@ -99,7 +99,7 @@ class Decoupled::Consumer
         puts "worker threads busy #{@count.get}"
 
         while @count.get < @concurrent do
-          puts '=> checking for new messages'
+          #puts '=> checking for new messages'
           response = @channel.basicGet(queueName, autoAck);
 
           @last_answer = Time.now
