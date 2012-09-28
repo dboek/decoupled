@@ -26,7 +26,11 @@ class Decoupled::Consumer
     @no_status = false
     if @redis_host != ""
       puts "| Creating Redis Connection on Host: #{@redis_host}"
-      @redis_conn = Redis.new(:host => @redis_host) 
+      begin
+        @redis_conn = Redis.new(:host => @redis_host) 
+      rescue Exception => e
+        puts "Unable to connect to #{@redis_host} => #{e}"
+      end
     else
       @no_status = true
     end
@@ -71,10 +75,10 @@ class Decoupled::Consumer
   def start
     begin
       # Consumer subscription to queue
-      autoAck = false;
-      exchangeName  = @msg_queue
-      queueName     = @msg_queue
-      routingKey    = ''
+      autoAck      = false;
+      exchangeName = @msg_queue
+      queueName    = @msg_queue
+      routingKey   = ''
 
       puts "|"
       puts "| binding channel to => #{exchangeName}"
