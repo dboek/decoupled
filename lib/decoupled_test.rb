@@ -48,7 +48,7 @@ options[:collections]      = ["schedules"]
 options[:redis_host]       = "redisdb"
 options[:amqp_host]        = "rabbitmq1"
 options[:amqp_fallbacks]   = Array.new
-options[:concurrent_count] = 1
+options[:concurrent_count] = 2
 options[:scheduler_name]   = "scheduler_test"
 options[:scheduler_db]     = "skydb-development"
 

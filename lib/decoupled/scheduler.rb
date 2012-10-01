@@ -22,8 +22,6 @@ class Decoupled::Scheduler
 	    # Instance Objects to be stopped by the decoupled instance
 	    puts "|"
 	    puts "| Creating ThreadPool of => 2" #"#{@concurrent}"
-	    #@schedule_executor = Executors.newCachedThreadPool(1)
-	    #@schedule_requests = Executors.newCachedThreadPool(1)
 	    @executor = Executors.newFixedThreadPool(2)
 
 	    @no_status = false
@@ -86,34 +84,35 @@ class Decoupled::Scheduler
 		end
 	end
 
-	# Save Message in MongoDB
+	# Thread to save scheduled message in MongoDB
 	def looking_for_new_schedules
 		@executor.submit do
 	    	@count.incrementAndGet
 			begin
-				loop           = true
-				@started_at    = Time.now
-				@last_answer   = @started_at
-				@init_consumer = @started_at
+				loop                               = true
+				@looking_for_scheduldes_started_at = Time.now
+
+				@last_answer                       = @looking_for_scheduldes_started_at
+				@init_consumer                     = @looking_for_scheduldes_started_at
 			    #listen_for_manager
 
 			    while loop do
-			        puts ">> checking for new schedule messages #{Time.now.strftime("%H:%M:%S")}"
+			        #puts ">> checking for new schedule messages #{Time.now.strftime("%H:%M:%S")}"
 			        response = @channel.basicGet(@msg_queue, @autoAck);
 
-			        @last_answer = Time.now
-			        if (@last_answer.to_i - @init_consumer.to_i) > 30
-			          @init_consumer = @last_answer
-			          #listen_for_manager
-			        end
-
+			        #@last_answer = Time.now
+			        #if (@last_answer.to_i - @init_consumer.to_i) > 30
+			        #  @init_consumer = @last_answer
+			        #  #listen_for_manager
+			        #end
+			        
 			        if response
 			        	delivery_tag = response.get_envelope.get_delivery_tag
 	            		message_body = JSON.parse( String.from_java_bytes(response.getBody()) )
 			       		save_schedule_message(message_body)
 			        end
 
-			        puts "amqp going to sleep #{Time.now.usec}"
+			        #puts "amqp going to sleep #{Time.now.usec}"
 			        sleep(10) # Wie lange soll der Thread 
 			    end
 			rescue Exception => e 
@@ -125,7 +124,7 @@ class Decoupled::Scheduler
 	# Save new schedule in Mongodb
 	def save_schedule_message(message)
 		begin
-			collection_name = message["send_to_queue"]
+			collection_name = @schedule_collections.length > 0 ? @schedule_collections.first : "schedules"
 			message         = get_correct_schedule_hash(message)
 			doc             = create_document_structure(message)
 
@@ -152,7 +151,8 @@ class Decoupled::Scheduler
 				if key == "send_to_queue"
 					key = "queue"
 				elsif key == "send_in"
-					key = "send_at"
+					key   = "send_at"
+					value = change_send_in_to_send_at_value(value)
 				end
 				schedule_hash[key] = value
 			end
@@ -165,29 +165,59 @@ class Decoupled::Scheduler
 		return schedule_hash
 	end
 
+	# change a send_in message to send_at (this message will be send every full minute)
+	def change_send_in_to_send_at_value(value)
+		time_at_looking_for_schedules = Time.now
+		time_to_wait                  = 60 - time_at_looking_for_schedules.strftime("%S").to_i
+		time_for_send_in              = time_at_looking_for_schedules + time_to_wait + value
+
+		#puts "TIME FOR SEND IN:"
+		#puts time_for_send_in.strftime("%H:%M:%S")
+		#puts "-----------------"
+
+		time_for_send_in.strftime("%Y%m%d%H%M")
+	end
+
+	# Thread to send scheduled messages to queue
 	def execute_schedules
 		@executor.submit do 
 			begin
-				loop           = true
-				@started_at    = Time.now
-				@last_answer   = @started_at
-				@init_consumer = @started_at
+				loop                             = true
+				@executing_scheduldes_started_at = Time.now
+
+				@last_answer    = @executing_scheduldes_started_at
+				@init_scheduler = @executing_scheduldes_started_at
 			    #listen_for_manager
 
+				wait_for_full_minute = false
+				waiting_for_sec      = 60 - @executing_scheduldes_started_at.strftime("%S").to_i
+			    if waiting_for_sec > 0
+			    	wait_for_full_minute = true
+			    end
+
 			    while loop do
-			        #puts ">> worker thread execute_schedules busy"
+			    	if wait_for_full_minute
+				    	sleep(waiting_for_sec)
+				    	wait_for_full_minute = false
+				    else
+				    	sleep(60) # Every minute execute scheduled messages
+				    end
 			        puts ">> checking for executable scheduled messages in db #{Time.now.strftime("%H:%M:%S")}"
 
-			        @last_answer = Time.now
-			        if (@last_answer.to_i - @init_consumer.to_i) > 30
-			          @init_consumer = @last_answer
-			          #listen_for_manager
-			        end
+					@current_time = Time.now
+					#@last_answer  = Time.now
+				    #if (@last_answer.to_i - @init_scheduler.to_i) > 30
+				    #  @init_scheduler = @last_answer
+				    #  #listen_for_manager
+				    #end
 
-			        # send_schedule_to_queue
-			  
-			        puts "amqp going to sleep #{Time.now.usec}"
-			        sleep(20)
+			        send_scheduled_message_to_queue
+
+					time_after_processing = Time.now
+					waiting_for_sec       = 60 - time_after_processing.strftime("%S").to_i
+					if waiting_for_sec > 0
+				    	wait_for_full_minute = true
+				    end
 			    end
 			rescue Exception => e 
 				puts "Failure in Thead execute_schedules => #{e}"
@@ -195,6 +225,110 @@ class Decoupled::Scheduler
 		end
 	end
 
+	def send_scheduled_message_to_queue
+		db = @db_conn.getDB(@skydb)
+		db.requestStart()
+
+		send_every_five_minutes       = @current_time.strftime("%M").to_i % 5
+		send_every_fiveteen_minutes   = @current_time.strftime("%M").to_i % 15
+		send_every_thirty_minutes     = @current_time.strftime("%M").to_i % 30
+		send_every_fourtyfive_minutes = @current_time.strftime("%M").to_i % 45
+		send_every_hour               = @current_time.strftime("%M").to_i % 60
+
+		send_daily_at = @current_time.strftime("%H%M").to_i
+		send_at       = @current_time.strftime("%Y%m%d%H%M").to_i
+
+		#puts "Dokumente mit folgenden Zeitstempeln: "
+		#puts send_at
+		#puts send_daily_at
+		#puts send_every_five_minutes       
+		#puts send_every_fiveteen_minutes   
+		#puts send_every_thirty_minutes     
+		#puts send_every_fourtyfive_minutes 
+		#puts send_every_hour  
+
+		for collection in @schedule_collections
+			puts "---------------------------------"
+			puts "Suche in Collection #{collection}"
+
+		    result_documents = Array.new
+
+			if send_every_five_minutes == 0
+				find_query = BasicDBObject.new
+				find_query.put("send_every", "5")
+				result_document = db.getCollection(collection).find(find_query)  
+				while(result_document.hasNext())
+				    result_documents.push result_document.next()
+				end
+			end
+
+			if send_every_fiveteen_minutes == 0
+				find_query = BasicDBObject.new
+				find_query.put("send_every", "15")
+				result_document = db.getCollection(collection).find(find_query)
+				while(result_document.hasNext())
+				    result_documents.push result_document.next()
+				end  
+			end
+
+			if send_every_thirty_minutes == 0
+				find_query = BasicDBObject.new
+				find_query.put("send_every", "30")
+				result_document = db.getCollection(collection).find(find_query)  
+				while(result_document.hasNext())
+				    result_documents.push result_document.next()
+				end
+			end
+
+			if send_every_fourtyfive_minutes == 0
+				find_query = BasicDBObject.new
+				find_query.put("send_every", "45")
+				result_document = db.getCollection(collection).find(find_query)  
+				while(result_document.hasNext())
+				    result_documents.push result_document.next()
+				end
+			end
+
+			if send_every_hour == 0
+				find_query = BasicDBObject.new
+				find_query.put("send_every", "60")
+				result_document = db.getCollection(collection).find(find_query)  
+				while(result_document.hasNext())
+				    result_documents.push result_document.next()
+				end
+			end
+
+			find_query = BasicDBObject.new
+			find_query.put("send_daily_at", send_daily_at.to_s)
+			result_document = db.getCollection(collection).find(find_query)  
+			while(result_document.hasNext())
+			    result_documents.push result_document.next()
+			end
+
+			find_query = BasicDBObject.new
+			find_query.put("send_at", send_at.to_s)
+			result_document = db.getCollection(collection).find(find_query) 
+			while(result_document.hasNext())
+			    result_documents.push result_document.next()
+			end 
+
+			for document in result_documents
+				begin
+					puts "--> Send Payload to #{document["queue"]}"
+					@channel.basicPublish("", document["queue"], nil, document["payload"].to_json.to_java_bytes)
+				rescue Exception => e
+					puts "Failure in sending scheduled message to #{document["queue"]}"
+				end
+			end
+
+			puts "---------------------------------"
+			puts ""
+		end       
+
+		db.requestDone() 
+	end
+
+	# Create document structure for scheduled message
     def create_document_structure(doc)
         # Create Document Structure for BasicDBObject
         return_document = BasicDBObject.new
