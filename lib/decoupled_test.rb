@@ -93,5 +93,5 @@ begin
 	}
 
 rescue Exception => e 
-	puts "Fehler in Scheduler Test => #{e}"
+	puts "Failure in Scheduler Test => #{e}"
 end

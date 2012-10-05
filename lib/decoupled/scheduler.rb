@@ -49,7 +49,7 @@ class Decoupled::Scheduler
 	    opts.connectionsPerHost = @concurrent
 	    if options[:environment] == "development"
 	      	@db_conn = Mongo.new( "localhost:27017", opts )
-			port   = "27017"
+			port     = "27017"
 	    else
 			@db_conn = Mongo.new( "localhost:27020", opts )
 			port     = "27020"
@@ -137,15 +137,6 @@ class Decoupled::Scheduler
 	def get_correct_schedule_hash(message)
 		schedule_hash = Hash.new
 
-		#{
-		# '_id': bsonobject,
-		# 'send_every': 5,
-		# 'send_at': '201209281200'
-		# 'send_daily_at': '1200'
-		# 'queue': 'pricealert',
-		# 'payload': {...}
-		#}
-
 		unless message.has_key? "intervall"
 			message.each do |key,value|
 				if key == "send_to_queue"
@@ -170,12 +161,8 @@ class Decoupled::Scheduler
 		time_at_looking_for_schedules = Time.now
 		time_to_wait                  = 60 - time_at_looking_for_schedules.strftime("%S").to_i
 		time_for_send_in              = time_at_looking_for_schedules + time_to_wait + value
-
-		#puts "TIME FOR SEND IN:"
-		#puts time_for_send_in.strftime("%H:%M:%S")
-		#puts "-----------------"
-
-		time_for_send_in.strftime("%Y%m%d%H%M")
+		
+		return time_for_send_in.strftime("%Y%m%d%H%M")
 	end
 
 	# Thread to send scheduled messages to queue
@@ -238,18 +225,9 @@ class Decoupled::Scheduler
 		send_daily_at = @current_time.strftime("%H%M").to_i
 		send_at       = @current_time.strftime("%Y%m%d%H%M").to_i
 
-		#puts "Dokumente mit folgenden Zeitstempeln: "
-		#puts send_at
-		#puts send_daily_at
-		#puts send_every_five_minutes       
-		#puts send_every_fiveteen_minutes   
-		#puts send_every_thirty_minutes     
-		#puts send_every_fourtyfive_minutes 
-		#puts send_every_hour  
-
 		for collection in @schedule_collections
 			puts "---------------------------------"
-			puts "Suche in Collection #{collection}"
+			puts "Searching in Collection #{collection}"
 
 		    result_documents = Array.new
 
