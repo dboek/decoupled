@@ -107,7 +107,6 @@ if file_exists
 
   #options[:concurrent_count] = cnf["concurrent_count"].nil? ? 3 : cnf["concurrent_count"]
   options[:environment]      = cnf["environment"].nil? ? "development" : cnf["environment"]
-  #options[:logging]          = cnf["logging"].nil? ? "off" : cnf["logging"] == "" ? "off" : cnf["logging"]
   options[:collections]      = cnf["collections"].nil? ? Array.new : cnf["collections"].split(",")
   options[:redis_host]       = cnf["redis_host"].nil? ? "" : cnf["redis_host"]
   options[:amqp_host]        = cnf["amqp_host"].nil? ? "localhost" : cnf["amqp_host"].split(",").first
@@ -163,8 +162,6 @@ begin
     puts "|"
   end
   puts "| environment:      #{options[:environment]}"
-  #puts "| concurrent count: #{options[:concurrent_count]}"
-  #puts "| job class:        #{options[:job_klass]}"
   puts "| custom collections:   #{options[:collections].empty? ? "" : options[:collections].join(",")}"
 
   @scheduler = Decoupled::Scheduler.new(options)

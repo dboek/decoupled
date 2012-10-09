@@ -53,7 +53,6 @@ options[:scheduler_name]   = "scheduler_test"
 options[:scheduler_db]     = "skydb-development"
 
 begin
-	#options[:scheduler_name] = "#{`hostname`.chomp}-#{Process.pid}"
     $0 = "starting decoupled:scheduler #{options[:scheduler_name]} with environment #{options[:environment]}"
   
     puts '+---------------------------------------------------------------------------------------------'
@@ -64,8 +63,6 @@ begin
       puts "|"
     end
     puts "| environment:      #{options[:environment]}"
-    #puts "| concurrent count: #{options[:concurrent_count]}"
-    #puts "| job class:        #{options[:job_klass]}"
     puts "| custom collections:   #{options[:collections].empty? ? "" : options[:collections].join(",")}"
 
 	scheduler = Decoupled::Scheduler.new(options)
