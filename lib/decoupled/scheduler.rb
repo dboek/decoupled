@@ -110,6 +110,8 @@ class Decoupled::Scheduler
 			message         = convert_scheduled_message_to_hash_for_db(message)
 			doc             = create_document_structure_for_db(message)
 
+			# message = handle_scheduled_message_structure(message)
+
 			@db_conn.getDB(@skydb).getCollection(collection_name).insert(doc)
 			puts "Message #{message.inspect}"
 			puts "saved in #{collection_name}"
@@ -127,7 +129,7 @@ class Decoupled::Scheduler
 					key = "queue"
 				elsif key == "send_in"
 					key   = "send_at"
-					value = convert_send_in_to_send_at(value)
+					value = handle_send_in(value)
 				elsif key == 'send_weekly_at'
 					value = get_timestamp(value)
 				elsif key == 'send_monthly_at'
@@ -157,7 +159,7 @@ class Decoupled::Scheduler
 	end
 
 	# change a send_in message to send_at (this message will be send every full minute)
-	def convert_send_in_to_send_at(value)
+	def handle_send_in(value)
 		time_at_looking_for_schedules = Time.now
 		time_to_wait                  = 60 - time_at_looking_for_schedules.strftime("%S").to_i
 		time_for_send_in              = time_at_looking_for_schedules + time_to_wait + value
@@ -203,35 +205,36 @@ class Decoupled::Scheduler
 		db.requestStart()
 
 		current_minutes                        = current_time.strftime("%M").to_i
+		current_hour_time     				   = current_time.strftime("%H%M")
 		send_every_five_minutes_interval       = current_minutes % 5
 		send_every_fiveteen_minutes_interval   = current_minutes % 15
 		send_every_thirty_minutes_interval     = current_minutes % 30
 		send_every_fourtyfive_minutes_interval = current_minutes % 45
 		send_every_hour_interval               = current_minutes % 60
 
-		send_daily_at_interval  = current_time.strftime("%H%M") #.to_i
+		send_daily_at_interval  = current_hour_time
 		send_at_interval        = current_time.strftime("%Y%m%d%H%M").to_i
-		send_weekly_at_interval = "#{current_time.wday}:#{current_time.strftime("%H%M")}"
-		
-		send_monthly_interval = Array.new
-		time_of_tomorrow      = current_time + 86400
+		send_weekly_at_interval = "#{current_time.wday}:#{current_hour_time}"
+		send_monthly_interval   = Array.new
+		time_of_tomorrow        = current_time + 86400
+
 		# February Fix
 		if current_time.month == 2
 			if time_of_tomorrow.month != 2
 				if current_time.mday == 28
-					send_monthly_interval.push "28:#{current_time.strftime("%H%M")}"
+					send_monthly_interval.push "28:#{current_hour_time}"
 				end
-				send_monthly_interval.push "29:#{current_time.strftime("%H%M")}"
-				send_monthly_interval.push "30:#{current_time.strftime("%H%M")}"
-				send_monthly_interval.push "31:#{current_time.strftime("%H%M")}"
+				send_monthly_interval.push "29:#{current_hour_time}"
+				send_monthly_interval.push "30:#{current_hour_time}"
+				send_monthly_interval.push "31:#{current_hour_time}"
 			end
 		else
 			# Fix for months with 30 days
 			if time_of_tomorrow.month != current_time.month and current_time.month % 2 == 0
-				send_monthly_interval.push "30:#{current_time.strftime("%H%M")}"
-				send_monthly_interval.push "31:#{current_time.strftime("%H%M")}"
+				send_monthly_interval.push "30:#{current_hour_time}"
+				send_monthly_interval.push "31:#{current_hour_time}"
 			else
-				send_monthly_interval.push "#{current_time.mday.to_s}:#{current_time.strftime("%H%M")}"
+				send_monthly_interval.push "#{current_time.mday.to_s}:#{current_hour_time}"
 			end
 		end
 
@@ -318,7 +321,6 @@ class Decoupled::Scheduler
     def create_document_structure_for_db(doc)
         # Create Document Structure for BasicDBObject
         return_document = BasicDBObject.new
-
         if doc.class.to_s == "Hash"
             doc.each do |key, value|
                 if key.to_s.include? "$"
