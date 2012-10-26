@@ -5,7 +5,7 @@ require 'java'
 require File.dirname(__FILE__) + '/jars/commons-cli-1.1.jar'
 require File.dirname(__FILE__) + '/jars/commons-io-1.2.jar'
 require File.dirname(__FILE__) + '/jars/rabbitmq-client.jar'
-require File.dirname(__FILE__) + '/jars/mongo-2.7.3.jar'
+require File.dirname(__FILE__) + '/jars/mongo-2.9.1.jar'
 require 'redis'
 
 java_import java.util.concurrent.Executors
@@ -65,30 +65,32 @@ begin
     puts "| environment:      #{options[:environment]}"
     puts "| custom collections:   #{options[:collections].empty? ? "" : options[:collections].join(",")}"
 
-	scheduler = Decoupled::Scheduler.new(options)
-	scheduler.start
+	@scheduler = Decoupled::Scheduler.new(options)
+	@scheduler.start
 
 	trap("TERM") { 
 	    puts 'shutting down scheduler, can take some time...'
-	    loop = false
-	    scheduler.close_connections
+	    #loop = false
+	    @scheduler.close_connections
 	    exit 2
 	}
 
 	trap("SIGINT") {
 	  puts 'shutting down scheduler, can take some time...'
-	  loop = false
-	  scheduler.close_connections
+	  #loop = false
+	  @scheduler.close_connections
 	  exit 2
 	}
 
 	trap("INT") { 
 	  puts 'shutting down scheduler, can take some time...'
-	  loop = false
-	  scheduler.close_connections
+	  #loop = false
+	  @scheduler.close_connections
 	  exit 2
 	}
 
 rescue Exception => e 
 	puts "Failure in Scheduler Test => #{e}"
+  	puts "Closing all existing connections"
+    @scheduler.close_connections
 end

@@ -16,7 +16,7 @@ class Decoupled::Consumer
     @msg_queue      = options[:queue_name]
     @redis_host     = options[:redis_host]
 
-    @count  = java.util.concurrent.atomic.AtomicInteger.new
+    @count = java.util.concurrent.atomic.AtomicInteger.new
     
     # Instance Objects to be stopped by the decoupled instance
     puts "|"

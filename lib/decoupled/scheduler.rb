@@ -16,14 +16,11 @@ class Decoupled::Scheduler
 	    @msg_queue      = "schedule"
 	    @redis_host     = options[:redis_host]
 	    @skydb          = options[:scheduler_db]
-
-	    @count  = java.util.concurrent.atomic.AtomicInteger.new
 	    
 	    # Instance Objects to be stopped by the decoupled instance
 	    puts "|"
 	    puts "| Creating ThreadPool of => 2" #"#{@concurrent}"
 		@executor  = Executors.newFixedThreadPool(2)
-		@no_status = false
 
 	    puts "| Creating AMQP Connection on Host: #{@amqp_host}"
 	    if @amqp_fallbacks.length > 1
@@ -44,11 +41,13 @@ class Decoupled::Scheduler
 			port     = "27020"
 	    end
 	    puts "| Creating MongoDB Pooled Connection on Port: #{port}"  
+
+	    @loop = true
 	end
 
 	def start
 		begin
-		    @autoAck      = false;
+		    @autoAck     = false;
 		    exchangeName = @msg_queue
 		    queueName    = @msg_queue
 		    routingKey   = ''
@@ -65,8 +64,8 @@ class Decoupled::Scheduler
 		    puts '+---------------------------------------------------------------------------------------------'
 		    puts ""
 
-		    check_for_new_schedules
-		    execute_schedules
+		    handle_incoming_scheduled_messages
+		    handle_sending_scheduled_messages
 
 		rescue Exception => e 
 			puts "Failure in start method of scheduler => #{e}"
@@ -74,15 +73,11 @@ class Decoupled::Scheduler
 	end
 
 	# Thread to save scheduled message in MongoDB
-	def check_for_new_schedules
+	def handle_incoming_scheduled_messages
 		@executor.submit do
-	    	@count.incrementAndGet
 			begin
-				loop                               = true
-				@looking_for_scheduldes_started_at = Time.now
-
-			    while loop do
-			        #puts ">> checking for new schedule messages #{Time.now.strftime("%H:%M:%S")}"
+			    while @loop do
+			        puts ">> checking for new scheduled messages #{Time.now.strftime("%H:%M:%S")}"
 			        response_exists = true
 
 			        while response_exists do
@@ -91,36 +86,39 @@ class Decoupled::Scheduler
 			        	if response
 				        	delivery_tag = response.get_envelope.get_delivery_tag
 		            		message_body = JSON.parse( String.from_java_bytes(response.getBody()) )
-		            		puts "Save Message in Mongodb"
-				       		save_schedule_message(message_body)
+
+		            		puts "Save Message in Database"
+				       		save_scheduled_message_in_db(message_body)
+				       		@channel.basicAck(delivery_tag, false)
 				       	else
 				       		response_exists = false
 				        end
 			        end
 
-			        #puts "amqp going to sleep #{Time.now.usec}"
-			        sleep(10) # Wie lange soll der Thread 
+			        sleep(10) # Thread going to sleep for 10 secs
 			    end
 			rescue Exception => e 
-				puts "Failure in Thead check_for_new_schedules => #{e}"
+				puts "Exception in Thread handle_incoming_scheduled_messages => #{e}"
 			end
 		end
 	end
 
-	# Save new schedule in Mongodb
-	def save_schedule_message(message)
+	# Save new scheduled message in database
+	def save_scheduled_message_in_db(message)
 		begin
 			collection_name = @schedule_collections.length > 0 ? @schedule_collections.first : "schedules"
-			message         = get_correct_schedule_hash(message)
-			doc             = create_document_structure(message)
+			message         = convert_scheduled_message_to_hash_for_db(message)
+			doc             = create_document_structure_for_db(message)
 
 			@db_conn.getDB(@skydb).getCollection(collection_name).insert(doc)
+			puts "Message #{message.inspect}"
+			puts "saved in #{collection_name}"
 		rescue Exception => e 
 			puts "Failure in saving schedule in collection => #{e}"
 		end
 	end
 
-	def get_correct_schedule_hash(message)
+	def convert_scheduled_message_to_hash_for_db(message)
 		schedule_hash = Hash.new
 
 		unless message.has_key? "intervall"
@@ -131,9 +129,9 @@ class Decoupled::Scheduler
 					key   = "send_at"
 					value = convert_send_in_to_send_at(value)
 				elsif key == 'send_weekly_at'
-					value = check_at_time(value)
+					value = get_timestamp(value)
 				elsif key == 'send_monthly_at'
-					value = check_at_time(value)
+					value = get_timestamp(value)
 				end
 				schedule_hash[key] = value
 			end
@@ -147,7 +145,7 @@ class Decoupled::Scheduler
 	end
 
 	# check for send_weekly_at and send_monthly_at to set standard time to midnight
-	def check_at_time(value)
+	def get_timestamp(value)
 		return_value = value
 		time_stamp   = value.split(":")
 
@@ -168,163 +166,142 @@ class Decoupled::Scheduler
 	end
 
 	# Thread to send scheduled messages to queue
-	def execute_schedules
+	def handle_sending_scheduled_messages
 		@executor.submit do 
 			begin
-				loop                             = true
-				@executing_scheduldes_started_at = Time.now
-
 				wait_for_full_minute = false
-				waiting_for_sec      = 60 - @executing_scheduldes_started_at.strftime("%S").to_i
+				waiting_for_sec      = 60 - Time.now.strftime("%S").to_i
 			    if waiting_for_sec > 0
 			    	wait_for_full_minute = true
 			    end
 
-			    while loop do
+			    while @loop do
 			    	if wait_for_full_minute
 				    	sleep(waiting_for_sec)
 				    	wait_for_full_minute = false
 				    else
 				    	sleep(60) # Every minute execute scheduled messages
 				    end
-			        puts ">> checking for executable scheduled messages in db #{Time.now.strftime("%H:%M:%S")}"
+			        puts ">> check for sending scheduled messages to specific queues #{Time.now.strftime("%H:%M:%S")}"
 
-			        send_scheduled_message_to_queue(Time.now)
+			        send_scheduled_messages_to_queue(Time.now)
 
-					time_after_processing = Time.now
-					waiting_for_sec       = 60 - time_after_processing.strftime("%S").to_i
+					waiting_for_sec = 60 - Time.now.strftime("%S").to_i
 					if waiting_for_sec > 0
 				    	wait_for_full_minute = true
 				    end
 			    end
 			rescue Exception => e 
-				puts "Failure in Thead execute_schedules => #{e}"
+				puts "Exception in Thread handle_sending_scheduled_messages => #{e}"
 			end
 		end
 	end
 
 	# check mongodb for scheduled messages and send it to specific queue
-	def send_scheduled_message_to_queue(current_time)
+	def send_scheduled_messages_to_queue(current_time)
 		db = @db_conn.getDB(@skydb)
 		db.requestStart()
 
-		send_every_five_minutes       = current_time.strftime("%M").to_i % 5
-		send_every_fiveteen_minutes   = current_time.strftime("%M").to_i % 15
-		send_every_thirty_minutes     = current_time.strftime("%M").to_i % 30
-		send_every_fourtyfive_minutes = current_time.strftime("%M").to_i % 45
-		send_every_hour               = current_time.strftime("%M").to_i % 60
+		current_minutes                        = current_time.strftime("%M").to_i
+		send_every_five_minutes_interval       = current_minutes % 5
+		send_every_fiveteen_minutes_interval   = current_minutes % 15
+		send_every_thirty_minutes_interval     = current_minutes % 30
+		send_every_fourtyfive_minutes_interval = current_minutes % 45
+		send_every_hour_interval               = current_minutes % 60
 
-		send_daily_at  = current_time.strftime("%H%M").to_i
-		send_at        = current_time.strftime("%Y%m%d%H%M").to_i
-		send_weekly_at = "#{current_time.wday}:#{current_time.strftime("%H%M")}"
-
+		send_daily_at_interval  = current_time.strftime("%H%M") #.to_i
+		send_at_interval        = current_time.strftime("%Y%m%d%H%M").to_i
+		send_weekly_at_interval = "#{current_time.wday}:#{current_time.strftime("%H%M")}"
+		
+		send_monthly_interval = Array.new
+		time_of_tomorrow      = current_time + 86400
 		# February Fix
-		send_monthly  = Array.new
-		time_tomorrow = current_time + 86400
 		if current_time.month == 2
-			if time_tomorrow.month != 2
+			if time_of_tomorrow.month != 2
 				if current_time.mday == 28
-					send_monthly.push "28:#{current_time.strftime("%H%M")}"
+					send_monthly_interval.push "28:#{current_time.strftime("%H%M")}"
 				end
-				send_monthly.push "29:#{current_time.strftime("%H%M")}"
-				send_monthly.push "30:#{current_time.strftime("%H%M")}"
-				send_monthly.push "31:#{current_time.strftime("%H%M")}"
+				send_monthly_interval.push "29:#{current_time.strftime("%H%M")}"
+				send_monthly_interval.push "30:#{current_time.strftime("%H%M")}"
+				send_monthly_interval.push "31:#{current_time.strftime("%H%M")}"
 			end
 		else
-			# Fix for every months with only 30 days
-			if time_tomorrow.month != current_time.month and current_time.month % 2 == 0
-				send_monthly.push "30:#{current_time.strftime("%H%M")}"
-				send_monthly.push "31:#{current_time.strftime("%H%M")}"
+			# Fix for months with 30 days
+			if time_of_tomorrow.month != current_time.month and current_time.month % 2 == 0
+				send_monthly_interval.push "30:#{current_time.strftime("%H%M")}"
+				send_monthly_interval.push "31:#{current_time.strftime("%H%M")}"
 			else
-				send_monthly.push "#{current_time.mday.to_s}:#{current_time.strftime("%H%M")}"
+				send_monthly_interval.push "#{current_time.mday.to_s}:#{current_time.strftime("%H%M")}"
 			end
 		end
 
 		puts "---------------------------------"
 		puts "Searching in Collection #{@schedule_collections.join(",")}"
+		puts ""
 		for collection in @schedule_collections
-		    result_documents = Array.new
-
-			if send_every_five_minutes == 0
-				find_query = BasicDBObject.new
-				find_query.put("send_every", "5")
-				result_document = db.getCollection(collection).find(find_query)  
-				while(result_document.hasNext())
-				    result_documents.push result_document.next()
-				end
+			result_documents = Array.new
+			or_query_list    = Array.new
+			query            = BasicDBObject.new
+			query.put("send_at", send_at_interval.to_s)
+			or_query_list.push query
+			
+			query = BasicDBObject.new
+			query.put("send_daily_at", send_daily_at_interval.to_s)
+			or_query_list.push query
+			query = BasicDBObject.new
+			query.put("send_weekly_at", send_weekly_at_interval.to_s)
+			or_query_list.push query
+			for send_monthly_at in send_monthly_interval
+				query = BasicDBObject.new
+				query.put("send_monthly_at", send_monthly_at.to_s)
+				or_query_list.push query
 			end
 
-			if send_every_fiveteen_minutes == 0
-				find_query = BasicDBObject.new
-				find_query.put("send_every", "15")
-				result_document = db.getCollection(collection).find(find_query)
-				while(result_document.hasNext())
-				    result_documents.push result_document.next()
-				end  
-			end
+			if send_every_five_minutes_interval == 0
+				query = BasicDBObject.new
+		    	query.put("send_every", "5")
+		    	or_query_list.push query
 
-			if send_every_thirty_minutes == 0
-				find_query = BasicDBObject.new
-				find_query.put("send_every", "30")
-				result_document = db.getCollection(collection).find(find_query)  
-				while(result_document.hasNext())
-				    result_documents.push result_document.next()
-				end
-			end
+		    	if send_every_fiveteen_minutes_interval == 0
+		    		query = BasicDBObject.new
+		    		query.put("send_every", "15")
+		    		or_query_list.push query
+		    		if send_every_thirty_minutes_interval == 0
+		    			query = BasicDBObject.new
+		    			query.put("send_every", "30")
+		    			or_query_list.push query
+		    			if send_every_fourtyfive_minutes_interval == 0
+		    				query = BasicDBObject.new
+				    		query.put("send_every", "45")
+				    		or_query_list.push query
+				    		if send_every_hour_interval == 0
+				    			query = BasicDBObject.new
+					    		query.put("send_every", "60")
+					    		or_query_list.push query
+					    	end
+				    	end
+		    		end
+		    	end
+		    end
+		    or_query = BasicDBObject.new
+			or_query.put("$or", or_query_list);
 
-			if send_every_fourtyfive_minutes == 0
-				find_query = BasicDBObject.new
-				find_query.put("send_every", "45")
-				result_document = db.getCollection(collection).find(find_query)  
-				while(result_document.hasNext())
-				    result_documents.push result_document.next()
-				end
-			end
-
-			if send_every_hour == 0
-				find_query = BasicDBObject.new
-				find_query.put("send_every", "60")
-				result_document = db.getCollection(collection).find(find_query)  
-				while(result_document.hasNext())
-				    result_documents.push result_document.next()
-				end
-			end
-
-			find_query = BasicDBObject.new
-			find_query.put("send_at", send_at.to_s)
-			result_document = db.getCollection(collection).find(find_query) 
+		    result_document = db.getCollection(collection).find(or_query)  
 			while(result_document.hasNext())
 			    result_documents.push result_document.next()
-			end 
+			end
+
 			# remove useless schedule from collection (only for send_at messages)
+			find_query = BasicDBObject.new
+			find_query.put("send_at", send_at_interval.to_s)
 			db.getCollection(collection).remove(find_query)
-
-			find_query = BasicDBObject.new
-			find_query.put("send_daily_at", send_daily_at.to_s)
-			result_document = db.getCollection(collection).find(find_query)  
-			while(result_document.hasNext())
-			    result_documents.push result_document.next()
-			end
-
-			find_query = BasicDBObject.new
-			find_query.put("send_weekly_at", send_weekly_at.to_s)
-			result_document = db.getCollection(collection).find(find_query) 
-			while(result_document.hasNext())
-			    result_documents.push result_document.next()
-			end 
-
-			for send_monthly_at in send_monthly
-				find_query = BasicDBObject.new
-				find_query.put("send_monthly_at", send_monthly_at.to_s)
-				result_document = db.getCollection(collection).find(find_query) 
-				while(result_document.hasNext())
-				    result_documents.push result_document.next()
-				end 
-			end
 
 			for document in result_documents
 				begin
-					puts "--> Send Payload to #{document["queue"]}"
+					puts "--> Send Payload"
+					puts "#{document["payload"].to_json}"
+					puts "to #{document["queue"]}"
+					puts ""
 					@channel.basicPublish("", document["queue"], nil, document["payload"].to_json.to_java_bytes)
 				rescue Exception => e
 					puts "Failure in sending scheduled message to #{document["queue"]}"
@@ -337,8 +314,8 @@ class Decoupled::Scheduler
 		db.requestDone() 
 	end
 
-	# Create document structure for scheduled message
-    def create_document_structure(doc)
+	# Create document structure of scheduled message for database
+    def create_document_structure_for_db(doc)
         # Create Document Structure for BasicDBObject
         return_document = BasicDBObject.new
 
@@ -349,7 +326,7 @@ class Decoupled::Scheduler
                         #if "#{key}" == "$push"
                         #    return_document.put("$addToSet", create_document_structure(value))
                         #else
-                            return_document.put("#{key}", create_document_structure(value))
+                            return_document.put("#{key}", create_document_structure_for_db(value))
                         #end
                     else
                         #if "#{key}" == "$push"
@@ -360,7 +337,7 @@ class Decoupled::Scheduler
                     end
                 else
                     if value.class.to_s == "Hash"
-                        return_document.put("#{key}", create_document_structure(value))
+                        return_document.put("#{key}", create_document_structure_for_db(value))
                     elsif value.class.to_s == "Array"
                         return_document.put("#{key}", value)    
                     else
@@ -375,27 +352,25 @@ class Decoupled::Scheduler
   	# All connections need to be closed, otherwise
   	# the process will hang and exit will not work.
   	def close_connections
-  	  puts 'closing connections'
-  	  unless @no_status
-  	  #  remove_from_queue_list
-  	  end
-  	  @executor.shutdown
-  	  @channel.close
-  	  @msg_conn.close
+  		puts 'closing connections'
+  		@loop = false
+  		@executor.shutdown
+  		@channel.close
+  		@msg_conn.close
   	end
-	
+
   	private
 
 	# @return Connection to RabbitMQ Server
 	def amqp_connection
-	  factory = ConnectionFactory.new 
-	  #factory.setUsername(userName)
-	  #factory.setPassword(password)
-	  #factory.setVirtualHost(virtualHost)
-	  factory.setHost(@amqp_host)
-	  #factory.setPort(portNumber)
-	  
-	  factory.newConnection
+		factory = ConnectionFactory.new 
+		#factory.setUsername(userName)
+		#factory.setPassword(password)
+		#factory.setVirtualHost(virtualHost)
+		factory.setHost(@amqp_host)
+		#factory.setPort(portNumber)
+		
+		factory.newConnection
 	end
 
 end
