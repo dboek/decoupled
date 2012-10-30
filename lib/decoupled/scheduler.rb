@@ -182,7 +182,8 @@ class Decoupled::Scheduler
 				    	sleep(waiting_for_sec)
 				    	wait_for_full_minute = false
 				    else
-				    	sleep(60) # Every minute execute scheduled messages
+				    	#sleep(60) # Every minute execute scheduled messages
+				    	sleep(2)
 				    end
 			        puts ">> check for sending scheduled messages to specific queues #{Time.now.strftime("%H:%M:%S")}"
 
@@ -302,12 +303,13 @@ class Decoupled::Scheduler
 			for document in result_documents
 				begin
 					puts "--> Send Payload"
-					puts "#{document["payload"].to_json}"
-					puts "to #{document["queue"]}"
+					@channel.basicPublish("", document["queue"], nil, document["payload"].to_string.to_java_bytes)
+					puts "#{document["payload"]}"
+					puts "to Queue: #{document["queue"]}"
 					puts ""
-					@channel.basicPublish("", document["queue"], nil, document["payload"].to_json.to_java_bytes)
 				rescue Exception => e
 					puts "Failure in sending scheduled message to #{document["queue"]}"
+					puts "#{e.backtrace.join("\n")}"
 				end
 			end
 		end       
@@ -315,6 +317,18 @@ class Decoupled::Scheduler
 		puts ""
 
 		db.requestDone() 
+	end
+
+	def get_hash(doc)
+		return_hash = Hash.new
+		doc.each do |key, value|
+			if value.class == "Hash"
+				return_hash[key] = get_hash(value)
+			else
+				return_hash[key] = value
+			end
+		end
+		return return_hash
 	end
 
 	# Create document structure of scheduled message for database
