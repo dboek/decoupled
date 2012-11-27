@@ -23,7 +23,7 @@ optparse = OptionParser.new do |opts|
   end      
 
   options[:environment] = 'development'
-  opts.on('-e', '--environment DECOUPLED', "decoupled environment can be used in the jobs (default => #{options[:environment]})") do |environment|           
+  opts.on('-e', '--environment DECOUPLED', "decoupled environment can be used in the joinobs (default => #{options[:environment]})") do |environment|           
     options[:environment] = environment
   end
 
@@ -146,7 +146,7 @@ end
 ENV['DECOUPLED'] = options[:environment]
 
 for folder in options[:folders]
-  $LOAD_PATH << File.join(Dir.pwd, "#{folder}")
+  $LOAD_PATH << File.join(Dir.pwd, folder)
 end
 require Decoupled::String.underscore(options[:job_klass])
 

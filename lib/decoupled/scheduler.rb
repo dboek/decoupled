@@ -9,40 +9,40 @@ class Decoupled::Scheduler
 		@consumer_name        = options[:scheduler_name]
 		@schedule_collections = options[:collections]
 
-	    @concurrent     = options[:concurrent_count]
-	    @amqp_host      = options[:amqp_host]
-	    @amqp_fallbacks = options[:amqp_fallbacks]
-	    @job_count      = 1
-	    @msg_queue      = "schedule"
-	    @redis_host     = options[:redis_host]
-	    @skydb          = options[:scheduler_db]
+	  @concurrent     = options[:concurrent_count]
+	  @amqp_host      = options[:amqp_host]
+	  @amqp_fallbacks = options[:amqp_fallbacks]
+	  @job_count      = 1
+	  @msg_queue      = "schedule"
+	  @redis_host     = options[:redis_host]
+	  @skydb          = options[:scheduler_db]
 	    
-	    # Instance Objects to be stopped by the decoupled instance
-	    puts "|"
-	    puts "| Creating ThreadPool of => 2" #"#{@concurrent}"
+	  # Instance Objects to be stopped by the decoupled instance
+	  puts "|"
+	  puts "| Creating ThreadPool of => 2" #"#{@concurrent}"
 		@executor  = Executors.newFixedThreadPool(2)
 
-	    puts "| Creating AMQP Connection on Host: #{@amqp_host}"
-	    if @amqp_fallbacks.length > 1
-	      puts "| AMQP Fallbacks: #{@amqp_fallbacks.join(",")}"
-	    end
-	    @msg_conn = amqp_connection
-	    puts '| Creating Channel'
-	    @channel = @msg_conn.createChannel
+	  puts "| Creating AMQP Connection on Host: #{@amqp_host}"
+	  if @amqp_fallbacks.length > 1
+	    puts "| AMQP Fallbacks: #{@amqp_fallbacks.join(",")}"
+	  end
+	  @msg_conn = amqp_connection
+	  puts '| Creating Channel'
+	  @channel = @msg_conn.createChannel
 
-	    # Database Connection
-	    opts                    = MongoOptions.new
-	    opts.connectionsPerHost = @concurrent
-	    if options[:environment] == "development"
-	      	@db_conn = Mongo.new( "localhost:27017", opts )
+	  # Database Connection
+	  opts                    = MongoOptions.new
+	  opts.connectionsPerHost = @concurrent
+	  if options[:environment] == "development"
+	    @db_conn = Mongo.new( "localhost:27017", opts )
 			port     = "27017"
-	    else
+	  else
 			@db_conn = Mongo.new( "localhost:27020", opts )
-			port     = "27020"
-	    end
-	    puts "| Creating MongoDB Pooled Connection on Port: #{port}"  
+		  port     = "27020"
+	  end
+	  puts "| Creating MongoDB Pooled Connection on Port: #{port}"  
 
-	    @loop = true
+	  @loop = true
 	end
 
 	def start
