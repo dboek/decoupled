@@ -16,22 +16,14 @@ require 'yaml'
 options = {}
 
 optparse = OptionParser.new do |opts|
-  
-  opts.on('-q', '--queue-name QUEUE_NAME', "name of the queue this consumer will subscribe to") do |queue_name|            
-    options[:queue_name] = queue_name
-  end
 
-  opts.on('-k', '--job-klass JOB_KLASS', "Please specify a Class Template where Your Jobs will be executed in") do |job_klass|
-    options[:job_klass] = job_klass
-  end
-
-  options[:concurrent_count] = 3
+  options[:concurrent_count] = 1
   opts.on('-c', '--job-count JOB_COUNT', Integer, "Number of message the consumer will process in parallel (default => #{options[:concurrent_count]})") do |concurrent_count|            
     options[:concurrent_count] = concurrent_count
-  end       
-  
+  end      
+
   options[:environment] = 'development'
-  opts.on('-e', '--environment DECOUPLED', "decoupled environment can be used in the jobs (default => #{options[:environment]})") do |environment|           
+  opts.on('-e', '--environment DECOUPLED', "decoupled environment can be used in the joinobs (default => #{options[:environment]})") do |environment|           
     options[:environment] = environment
   end
 
@@ -54,9 +46,9 @@ optparse = OptionParser.new do |opts|
     end
   end
 
-  options[:folders] = Array.new
-  opts.on('-f', '--folders FOLDER_NAMES', "folders you want to add to (default => #{options[:folders]})") do |folders|           
-    options[:folders] = folders.split(",")
+  options[:collections] = ["schedules"]
+  opts.on('-c', '--collections COLLECTION NAMES', "collections you want to add to (default => #{options[:collections]})") do |folders|           
+    options[:collections] = folders.split(",")
   end
 
   opts.on('-o', '--config CONFIGFILE', "name of the config file you want to use (default => no config file). If config file is specified options will be added from there!") do |config_file|            
@@ -72,7 +64,7 @@ end
 begin       
   optparse.parse!                 
   if options[:config_file].nil?             
-    mandatory = [:queue_name, :concurrent_count, :job_klass]
+    mandatory = [:collections, :amqp_host]
     missing = mandatory.select{ |param| options[param].nil? }        
     if not missing.empty?
       puts "Missing options: #{missing.join(', ')}"                  
@@ -113,10 +105,9 @@ if file_exists
   loading_error = false
   errors        = Array.new
 
-  options[:concurrent_count] = cnf["concurrent_count"].nil? ? 3 : cnf["concurrent_count"]
+  #options[:concurrent_count] = cnf["concurrent_count"].nil? ? 3 : cnf["concurrent_count"]
   options[:environment]      = cnf["environment"].nil? ? "development" : cnf["environment"]
-  options[:logging]          = cnf["logging"].nil? ? "off" : cnf["logging"] == "" ? "off" : cnf["logging"]
-  options[:folders]          = cnf["folders"].nil? ? Array.new : cnf["folders"].split(",")
+  options[:collections]      = cnf["collections"].nil? ? Array.new : cnf["collections"].split(",")
   options[:redis_host]       = cnf["redis_host"].nil? ? "" : cnf["redis_host"]
   options[:amqp_host]        = cnf["amqp_host"].nil? ? "localhost" : cnf["amqp_host"].split(",").first
   options[:amqp_fallbacks]   = Array.new
@@ -129,19 +120,19 @@ if file_exists
     end
   end
 
-  if cnf["queue_name"].nil?
-    errors.push "No queue specified"
-    loading_error = true
-  else
-    options[:queue_name] = cnf["queue_name"]
-  end
+  #if cnf["queue_name"].nil?
+  #  errors.push "No queue specified"
+  #  loading_error = true
+  #else
+  #  options[:queue_name] = cnf["queue_name"]
+  #end
   
-  if cnf["job_klass"].nil?
-    errors.push "No job class specified"
-    loading_error = true
-  else
-    options[:job_klass] = cnf["job_klass"]
-  end
+  #if cnf["job_klass"].nil?
+  #  errors.push "No job class specified"
+  #  loading_error = true
+  #else
+  #  options[:job_klass] = cnf["job_klass"]
+  #end
 
   if loading_error
     puts "Exception while loading"
@@ -155,53 +146,51 @@ end
 ENV['DECOUPLED'] = options[:environment]
 
 for folder in options[:folders]
-  $LOAD_PATH << File.join(Dir.pwd, "#{folder}")
+  $LOAD_PATH << File.join(Dir.pwd, folder)
 end
 require Decoupled::String.underscore(options[:job_klass])
 
 begin
-  options[:consumer_name] = "#{`hostname`.chomp}-#{Process.pid}"
-  $0 = "starting decoupled:consumer #{options[:consumer_name]} with environment #{options[:environment]}"
+  options[:scheduler_name] = "#{`hostname`.chomp}-#{Process.pid}"
+  $0 = "starting decoupled:scheduler #{options[:scheduler_name]} with environment #{options[:environment]}"
 
   puts '+---------------------------------------------------------------------------------------------'
-  puts "| starting Decoupled Consumer (#{options[:consumer_name]}) with the following parameters:"
+  puts "| starting Decoupled Scheduler (#{options[:scheduler_name]}) with the following parameters:"
   puts "|"
   if options[:config_file]
     puts "| configfile:       #{config_file}"
     puts "|"
   end
   puts "| environment:      #{options[:environment]}"
-  puts "| concurrent count: #{options[:concurrent_count]}"
-  puts "| job class:        #{options[:job_klass]}"
-  puts "| custom folders:   #{options[:folders].empty? ? "" : options[:folders].join(",")}"
+  puts "| custom collections:   #{options[:collections].empty? ? "" : options[:collections].join(",")}"
 
-  @consumer = Decoupled::Consumer.new(options)
-  @consumer.start
+  @scheduler = Decoupled::Scheduler.new(options)
+  @scheduler.start
 
-  $0 = "decoupled:consumer subscribed to => #{options[:queue_name]} on RabbitmqServer: #{options[:amqp_host]} | #{options[:consumer_name]} with Prefetch #{options[:concurrent_count]}"
+  $0 = "decoupled:scheduler subscribed to => #{options[:scheduler_name]} on RabbitmqServer: #{options[:amqp_host]} | #{options[:scheduler_name]} with Prefetch #{options[:concurrent_count]}"
 
   trap("TERM") { 
-    puts 'shutting down decoupled, can take some time...'
+    puts 'shutting down scheduler, can take some time...'
     loop = false
-    @consumer.close_connections
+    @scheduler.close_connections
     exit 2
   }
 
   trap("SIGINT") {
-    puts 'shutting down decoupled, can take some time...'
+    puts 'shutting down scheduler, can take some time...'
     loop = false
-    @consumer.close_connections
+    @scheduler.close_connections
     exit 2
   }
 
   trap("INT") { 
-    puts 'shutting down decoupled, can take some time...'
+    puts 'shutting down scheduler, can take some time...'
     loop = false
-    @consumer.close_connections
+    @scheduler.close_connections
     exit 2
   }
 rescue => e
   puts "Error #{e}"
   puts "Closing all existing connections"
-  @consumer.close_connections
+  @scheduler.close_connections
 end

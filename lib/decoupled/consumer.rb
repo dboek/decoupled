@@ -16,7 +16,7 @@ class Decoupled::Consumer
     @msg_queue      = options[:queue_name]
     @redis_host     = options[:redis_host]
 
-    @count  = java.util.concurrent.atomic.AtomicInteger.new
+    @count = java.util.concurrent.atomic.AtomicInteger.new
     
     # Instance Objects to be stopped by the decoupled instance
     puts "|"
@@ -26,9 +26,14 @@ class Decoupled::Consumer
     @no_status = false
     if @redis_host != ""
       puts "| Creating Redis Connection on Host: #{@redis_host}"
-      @redis_conn = Redis.new(:host => @redis_host) 
+      begin
+        @redis_conn = Redis.new(:host => @redis_host) 
+      rescue Exception => e
+        puts "Unable to connect to #{@redis_host} => #{e}"
+      end
     else
-      @no_status = true
+      @redis_conn = nil
+      @no_status  = true
     end
 
     puts "| Creating AMQP Connection on Host: #{@amqp_host}"
@@ -57,7 +62,7 @@ class Decoupled::Consumer
       @count.incrementAndGet
 
       begin
-        work = Decoupled::Worker.new(@count, @db_conn, payload)
+        work = Decoupled::Worker.new(@count, @db_conn, @redis_conn, payload)
         work.execute(@job_klass)
         @processed_jobs += 1
       rescue Exception => e
@@ -71,10 +76,10 @@ class Decoupled::Consumer
   def start
     begin
       # Consumer subscription to queue
-      autoAck = false;
-      exchangeName  = @msg_queue
-      queueName     = @msg_queue
-      routingKey    = ''
+      autoAck      = false;
+      exchangeName = @msg_queue
+      queueName    = @msg_queue
+      routingKey   = ''
 
       puts "|"
       puts "| binding channel to => #{exchangeName}"
@@ -99,7 +104,7 @@ class Decoupled::Consumer
         puts "worker threads busy #{@count.get}"
 
         while @count.get < @concurrent do
-          puts '=> checking for new messages'
+          #puts '=> checking for new messages'
           response = @channel.basicGet(queueName, autoAck);
 
           @last_answer = Time.now

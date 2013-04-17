@@ -5,7 +5,7 @@ require 'java'
 require File.dirname(__FILE__) + '/jars/commons-cli-1.1.jar'
 require File.dirname(__FILE__) + '/jars/commons-io-1.2.jar'
 require File.dirname(__FILE__) + '/jars/rabbitmq-client.jar'
-require File.dirname(__FILE__) + '/jars/mongo-2.7.3.jar'
+require File.dirname(__FILE__) + '/jars/mongo-2.9.1.jar'
 
 java_import java.util.concurrent.Executors
 # RabbitMQ imports
@@ -15,7 +15,7 @@ java_import com.rabbitmq.client.ConnectionFactory
 java_import com.rabbitmq.client.Channel
 java_import com.rabbitmq.client.Consumer
 java_import com.rabbitmq.client.DefaultConsumer
-java_import java.util.concurrent.Executors
+#java_import java.util.concurrent.Executors
 # MongoDB Imports
 java_import com.mongodb.Mongo
 java_import com.mongodb.MongoOptions
