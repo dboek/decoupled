@@ -32,7 +32,8 @@ class Decoupled::Consumer
         puts "Unable to connect to #{@redis_host} => #{e}"
       end
     else
-      @no_status = true
+      @redis_conn = nil
+      @no_status  = true
     end
 
     puts "| Creating AMQP Connection on Host: #{@amqp_host}"
@@ -61,7 +62,7 @@ class Decoupled::Consumer
       @count.incrementAndGet
 
       begin
-        work = Decoupled::Worker.new(@count, @db_conn, payload)
+        work = Decoupled::Worker.new(@count, @db_conn, @redis_conn, payload)
         work.execute(@job_klass)
         @processed_jobs += 1
       rescue Exception => e
