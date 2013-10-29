@@ -18,7 +18,7 @@ options = {}
 optparse = OptionParser.new do |opts|
 
   options[:concurrent_count] = 1
-  opts.on('-c', '--job-count JOB_COUNT', Integer, "Number of message the consumer will process in parallel (default => #{options[:concurrent_count]})") do |concurrent_count|            
+  opts.on('-j', '--job-count JOB_COUNT', Integer, "Number of message the consumer will process in parallel (default => #{options[:concurrent_count]})") do |concurrent_count|            
     options[:concurrent_count] = concurrent_count
   end      
 
@@ -28,7 +28,7 @@ optparse = OptionParser.new do |opts|
   end
 
   options[:redis_host] = 'localhost'
-  opts.on('-e', '--redis_host localhost', "redis host you want to connect to (default => #{options[:redis_host]})") do |redis_host|           
+  opts.on('-r', '--redis_host localhost', "redis host you want to connect to (default => #{options[:redis_host]})") do |redis_host|           
     options[:redis_host] = redis_host
   end  
 
