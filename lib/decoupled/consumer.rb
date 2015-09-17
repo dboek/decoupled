@@ -147,6 +147,7 @@ class Decoupled::Consumer
       'processed_jobs' => @processed_jobs,
       'job_errors'     => @job_errors,
       'last_answer'    => @last_answer.to_i,
+      'amqp_host'      => @amqp_host,
       'status'         => consumer_status,
       'started_at'     => @started_at.strftime('%d.%m.%Y %H:%M:%S'),
     }
