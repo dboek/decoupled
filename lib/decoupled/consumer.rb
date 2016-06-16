@@ -41,20 +41,17 @@ class Decoupled::Consumer
       puts "| AMQP Fallbacks: #{@amqp_fallbacks.join(",")}"
     end
     @msg_conn = amqp_connection
-    puts '| Creating Channel'
+    puts '| Creating AMQP Channel'
     @channel = @msg_conn.createChannel
+    puts "|"
 
     # Database Connection
-    opts                    = MongoOptions.new
-    opts.connectionsPerHost = @concurrent
-    if options[:environment] == "development"
-      @db_conn = Mongo.new( "localhost:27017", opts )
-      port = "27017"
-    else
-      @db_conn = Mongo.new( "localhost:27020", opts )
-      port = "27020"
-    end
-    puts "| Creating MongoDB Pooled Connection on Port: #{port}"  
+    opts     = MongoClientOptions::Builder.new.connectionsPerHost(@concurrent).build
+    port     = options[:environment] == "development" ? 27017 : 27020
+    @db_conn = MongoClient.new("localhost:#{port}", opts)
+
+    puts "| Creating MongoDB Pooled Connection on Port: #{port} with #{@db_conn.getMongoOptions.getConnectionsPerHost} Connections per Host"  
+    puts "| Using MongoDB Java Driver Version #{@db_conn.getVersion}"
   end
 
   def do_work(payload)

@@ -19,9 +19,8 @@ java_import com.rabbitmq.client.Consumer
 java_import com.rabbitmq.client.DefaultConsumer
 #java_import java.util.concurrent.Executors
 # MongoDB Imports
-java_import com.mongodb.Mongo
 java_import com.mongodb.MongoClient
-java_import com.mongodb.MongoOptions
+java_import com.mongodb.MongoClientOptions
 java_import com.mongodb.DB
 java_import com.mongodb.DBCollection
 java_import com.mongodb.BasicDBObject
