@@ -31,15 +31,10 @@ class Decoupled::Scheduler
 	  @channel = @msg_conn.createChannel
 
 	  # Database Connection
-	  opts                    = MongoOptions.new
-	  opts.connectionsPerHost = @concurrent
-	  if options[:environment] == "development"
-	    @db_conn = Mongo.new( "localhost:27017", opts )
-			port     = "27017"
-	  else
-			@db_conn = Mongo.new( "localhost:27020", opts )
-		  port     = "27020"
-	  end
+	  opts     = MongoClientOptions::Builder.new.connectionsPerHost(@concurrent).build
+    port     = options[:environment] == "development" ? 27017 : 27020
+    @db_conn = MongoClient.new("localhost:#{port}", opts)
+
 	  puts "| Creating MongoDB Pooled Connection on Port: #{port}"  
 
 	  @loop = true
