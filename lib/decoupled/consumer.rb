@@ -3,11 +3,16 @@ class Decoupled::Consumer
 
   attr_accessor :executor, :channel, :msg_conn, :db_conn, :concurrent, :job_klass, :amqp_host
 
+  # Since java.util.concurrent.ThreadPoolExecutor.submit has multiple signatures,
+  # we force JRuby to use the one signature we want, and stop a warning from being emitted.
+  java.util.concurrent.ThreadPoolExecutor.class_eval do
+    java_alias :submit, :submit, [java.util.concurrent.Callable.java_class]
+  end
+
   def initialize(options)
     @job_errors     = 0
     @processed_jobs = 0
     @consumer_name  = options[:consumer_name]
-
     @concurrent     = options[:concurrent_count]
     @job_klass      = options[:job_klass]
     @amqp_host      = options[:amqp_host]
@@ -37,13 +42,12 @@ class Decoupled::Consumer
     end
 
     puts "| Creating AMQP Connection on Host: #{@amqp_host}"
-    if @amqp_fallbacks.length > 1
-      puts "| AMQP Fallbacks: #{@amqp_fallbacks.join(",")}"
-    end
+    puts "| AMQP Fallbacks: #{@amqp_fallbacks.join(",")}" if @amqp_fallbacks.length > 1
     @msg_conn = amqp_connection
     puts '| Creating AMQP Channel'
-    @channel = @msg_conn.createChannel
     puts "|"
+    @channel = @msg_conn.createChannel
+    puts "| Using RabbitMQ Client #{@msg_conn.getClientProperties["version"]} and RabbitMQ Server #{@msg_conn.getServerProperties["version"]}"
 
     # Database Connection
     opts     = MongoClientOptions::Builder.new.connectionsPerHost(@concurrent).build
@@ -57,6 +61,7 @@ class Decoupled::Consumer
   def do_work(payload)
     @executor.submit do
       @count.incrementAndGet
+      puts ">>> INCREMENT CURRENT JOBS #{@count}"
 
       begin
         work = Decoupled::Worker.new(@count, @db_conn, @redis_conn, payload)
@@ -64,6 +69,8 @@ class Decoupled::Consumer
         @processed_jobs += 1
       rescue Exception => e
         @count.decrementAndGet
+        puts ">>> EXCEPTION IN WORKER THREAD"
+        puts ">>> DECREMENT CURRENT JOBS #{@count}"
         puts e
       end
 
@@ -101,7 +108,6 @@ class Decoupled::Consumer
         puts "worker threads busy #{@count.get}"
 
         while @count.get < @concurrent do
-          #puts '=> checking for new messages'
           response = @channel.basicGet(queueName, autoAck);
 
           @last_answer = Time.now
@@ -117,14 +123,14 @@ class Decoupled::Consumer
             #AMQP.BasicProperties props = response.getProps();
             delivery_tag = response.get_envelope.get_delivery_tag
             message_body = JSON.parse( String.from_java_bytes(response.getBody()) )
-            puts @job_count
+            #puts "processed Jobs: #{@job_count}"
             do_work(message_body)
 
             @channel.basicAck(delivery_tag, false)
             @job_count += 1
           end
         end
-        puts "amqp going to sleep #{Time.now.usec}"
+        puts "amqp going to sleep #{Time.now.utc} | #{@count.get}" #usec}"
         sleep(10)
       end
 
@@ -180,6 +186,7 @@ class Decoupled::Consumer
     #factory.setVirtualHost(virtualHost)
     factory.setHost(@amqp_host)
     #factory.setPort(portNumber)
+    #factory.setNetworkRecoveryInterval(10000);
     
     factory.newConnection
   end
