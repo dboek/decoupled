@@ -15,6 +15,7 @@ class Decoupled::Worker
     jk.execute_work( @payload, @m, @r_conn )
 
     @count.decrementAndGet
+    puts ">>> DECREMENT CURRENT JOBS #{@count}"
   end
 
 end
