@@ -60,10 +60,9 @@ class Decoupled::Consumer
 
   def do_work(payload)
     @executor.submit do
-      @count.incrementAndGet
-      puts ">>> INCREMENT CURRENT JOBS #{@count}"
-
       begin
+        @count.incrementAndGet
+        puts ">>> INCREMENT CURRENT JOBS #{@count}"
         work = Decoupled::Worker.new(@count, @db_conn, @redis_conn, payload)
         work.execute(@job_klass)
         @processed_jobs += 1
