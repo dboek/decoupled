@@ -4,10 +4,7 @@ require 'json'
 require 'java'
 require File.dirname(__FILE__) + '/jars/commons-cli-1.1.jar'
 require File.dirname(__FILE__) + '/jars/commons-io-1.2.jar'
-#require File.dirname(__FILE__) + '/jars/rabbitmq-client.jar'
 require File.dirname(__FILE__) + '/jars/rabbitmq-client-3.6.2.jar'
-#require File.dirname(__FILE__) + '/jars/mongo-2.9.1.jar'
-#require File.dirname(__FILE__) + '/jars/mongo-2.11.3.jar'
 require File.dirname(__FILE__) + '/jars/mongo-2.14.2.jar'
 
 java_import java.util.concurrent.Executors
@@ -41,4 +38,4 @@ end
 require 'decoupled/util'
 require 'decoupled/worker'
 require 'decoupled/consumer'
-#require 'decoupled/scheduler'
+require 'decoupled/scheduler'
