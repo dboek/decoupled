@@ -2,13 +2,13 @@
 
 class Decoupled::Manager
 
-  attr_accessor :executor, :channel, :msg_conn, :db_conn, :amqp_host
+  attr_accessor :channels, :msg_conns, :db_conn, :amqp_hosts
 
   def initialize(options)
     @job_errors     = 0
     @processed_jobs = 0
     @consumer_name  = options[:manager_name]
-    @concurrent     = 1 #options[:concurrent_count]
+    @concurrent     = options[:amqp_hosts].length #1 #options[:concurrent_count]
     #@job_klass      = options[:job_klass]
     @amqp_hosts     = options[:amqp_hosts]
     #@amqp_fallbacks = options[:amqp_fallbacks]
@@ -16,7 +16,11 @@ class Decoupled::Manager
     #@msg_queue      = options[:queue_name]
     @redis_host     = options[:redis_host]
 
+    # Instance Objects to be stopped by the decoupled instance
     puts "|"
+    puts "| Creating ThreadPool of => #{@concurrent}"
+    @executor = Executors.newFixedThreadPool(@concurrent)
+
     @no_status = false
     if @redis_host != ""
       puts "| Creating Redis Connection on Host: #{@redis_host}"
@@ -31,7 +35,7 @@ class Decoupled::Manager
       @no_status  = true
     end
 
-    puts "| Creating AMQP Connections to Hosts: #{@amqp_hosts}"
+    puts "| Creating AMQP Connections to Hosts: #{@amqp_hosts.join(",")}"
     #puts "| AMQP Fallbacks: #{@amqp_fallbacks.join(",")}" if @amqp_fallbacks.length > 1
     @msg_conns = amqp_connections
     puts '| Creating AMQP Channels'
@@ -40,7 +44,7 @@ class Decoupled::Manager
     @channels = Array.new
     @msg_conns.each do |msg_conn|
       @channels.push msg_conn.createChannel
-      puts "| Using RabbitMQ Client #{@msg_conn.getClientProperties["version"]} and RabbitMQ Server #{@msg_conn.getServerProperties["version"]}"
+      puts "| Using RabbitMQ Client #{msg_conn.getClientProperties["version"]} and RabbitMQ Server #{msg_conn.getServerProperties["version"]}"
     end
 
     # Database Connection
@@ -52,20 +56,53 @@ class Decoupled::Manager
     puts "| Using MongoDB Java Driver Version #{@db_conn.getVersion}"
   end
 
-  def monitor
+  def start_monitoring
     begin
-      loop = true
+      puts "|"
+      puts "| Manager ready for monitoring now"
+      puts '+----------------------------------------------------------------------------------------------'
+      puts ""
 
-      while loop do 
-        puts "Check current Consumer and Scheduler status on RabbitMQ Server X"
+      @init_manager = Time.now
+      @last_answer  = @init_manager
 
-        sleep(2)
-      end
+      monitoring_queues
 
     rescue Exception => e 
-      puts "Exception in monitoring Queues and Consumers => #{e}"
+      puts "Exception in start_monitoring method => #{e}"
       puts e.backtrace.join("\n")
     end
+  end
+
+  def monitoring_queues
+    @channels.each do |channel|
+      @executor.submit do 
+        loop = true
+
+        begin
+          while loop do
+            # TOOD: Checks auf die Redis Datenbank vornehmen und aktuelle Schedules überprüfen in MongoDB
+
+            puts "Checking Consumers and Schedulers on Channel #{}"
+
+            sleep(5)
+          end
+        rescue Exception => e 
+          puts "Exception in monitoring_queues on Channel => #{e}"
+          puts e.backtrace.join("\n")
+        end
+      end  
+    end
+  end
+
+  # All connections need to be closed, otherwise
+  # the process will hang and exit will not work.
+  def close_connections
+    puts 'closing connections'
+    #remove_from_queue_list #unless @no_status
+    @executor.shutdown
+    @channels.each { |channel| channel.close }
+    @msg_conns.each { |msg_conn| msg_conn.close }
   end
 
   private
@@ -81,9 +118,9 @@ class Decoupled::Manager
       factory.setHost(amqp_host)
       #factory.setPort(portNumber)
       #factory.setNetworkRecoveryInterval(10000);
-      
       connections.push factory.newConnection
     end
+    return connections
   end
 
 end

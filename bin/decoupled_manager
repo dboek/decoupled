@@ -122,14 +122,14 @@ begin
     puts "| configfile:       #{config_file}"
     puts "|"
   else
-    puts "| no configfile"
+    puts "| no configfile -> using default settings"
     puts "|"
   end
   puts "| environment:      #{options[:environment]}"
-  puts "| custom folders:   #{options[:folders].empty? ? "" : options[:folders].join(",")}"
+  #puts "| custom folders:   #{options[:folders].empty? ? "" : options[:folders].join(",")}"
 
   @manager = Decoupled::Manager.new(options)
-  @manager.monitor
+  @manager.start_monitoring
 
   $0 = "decoupled:manager montitoring consumers and schedulers on RabbitmqServer: #{options[:amqp_host]}"
 
