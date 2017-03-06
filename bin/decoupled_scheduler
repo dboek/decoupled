@@ -1,6 +1,5 @@
 #!/usr/bin/env ruby
 # coding: utf-8
-#require 'rubygems'
 
 # Load all files in the directory decoupled is started from
 $LOAD_PATH[0,0] = File.join(File.dirname(__FILE__), '..', 'lib')
@@ -17,38 +16,48 @@ options = {}
 
 optparse = OptionParser.new do |opts|
 
-  options[:concurrent_count] = 1
-  opts.on('-j', '--job-count JOB_COUNT', Integer, "Number of message the consumer will process in parallel (default => #{options[:concurrent_count]})") do |concurrent_count|            
-    options[:concurrent_count] = concurrent_count
-  end      
+  options[:concurrent_count] = 2
+  #opts.on('-j', '--job-count JOB_COUNT', Integer, "Number of messages the consumer will process in parallel (default => #{options[:concurrent_count]})") do |concurrent_count|            
+  #  options[:concurrent_count] = concurrent_count
+  #end      
+
+  options[:scheduler_db] = 'skydb-development'
+  opts.on('-e', '--environment DECOUPLED', "mongodb database to save scheduled message in collection (default => #{options[:scheduler_db]})") do |db|
+    options[:scheduler_db] = db
+  end
 
   options[:environment] = 'development'
-  opts.on('-e', '--environment DECOUPLED', "decoupled environment can be used in the joinobs (default => #{options[:environment]})") do |environment|           
+  opts.on('-e', '--environment DECOUPLED', "decoupled environment can be used in the jobs (default => #{options[:environment]})") do |environment|
     options[:environment] = environment
   end
 
   options[:redis_host] = 'localhost'
-  opts.on('-r', '--redis_host localhost', "redis host you want to connect to (default => #{options[:redis_host]})") do |redis_host|           
+  opts.on('-r', '--redis_host localhost', "redis host you want to connect to (default => #{options[:redis_host]})") do |redis_host|
     options[:redis_host] = redis_host
   end  
 
-  options[:amqp_host] = 'localhost'
-  opts.on('-a', '--amqp_host localhost', "amqp server you want to connect to (default => #{options[:amqp_host]})") do |amqp_host|           
+  options[:amqp_fallbacks] = Array.new
+  options[:amqp_host]      = 'localhost'
+  opts.on('-a', '--amqp_host localhost', "amqp server you want to connect to (default => #{options[:amqp_host]})") do |amqp_host|
     options[:amqp_host]      = amqp_host.split(",").first
-    options[:amqp_fallbacks] = Array.new
-    first = false
-    for fallback in amqp_host.split(",")
-      unless first
-         options[:amqp_fallbacks].push fallback
-       else
-        first = true
-      end
+    first                    = false
+    amqp_host.split(",").each do |fallback|
+      options[:amqp_fallbacks].push fallback unless first
+      first = true
     end
   end
+  options[:amqp_fallbacks].push options[:amqp_host] if options[:amqp_fallbacks].empty?
 
+  # Why Collections ?
   options[:collections] = ["schedules"]
-  opts.on('-c', '--collections COLLECTION NAMES', "collections you want to add to (default => #{options[:collections]})") do |folders|           
+  opts.on('-c', '--collections COLLECTION NAMES', "collections you want to add to (default => #{options[:collections]})") do |folders|
     options[:collections] = folders.split(",")
+  end
+
+  # for helper classes
+  options[:folders] = Array.new
+  opts.on('-f', '--folders FOLDER_NAMES', "folders you want to add to (default => #{options[:folders]})") do |folders|           
+    options[:folders] = folders.split(",")
   end
 
   opts.on('-o', '--config CONFIGFILE', "name of the config file you want to use (default => no config file). If config file is specified options will be added from there!") do |config_file|            
@@ -64,8 +73,8 @@ end
 begin       
   optparse.parse!                 
   if options[:config_file].nil?             
-    mandatory = [:collections, :amqp_host]
-    missing = mandatory.select{ |param| options[param].nil? }        
+    mandatory = [:collections, :amqp_host, :scheduler_db]
+    missing   = mandatory.select{ |param| options[param].nil? }        
     if not missing.empty?
       puts "Missing options: #{missing.join(', ')}"                  
       puts optparse      
@@ -136,33 +145,36 @@ if file_exists
 
   if loading_error
     puts "Exception while loading"
-    for error in errors
-      puts "- #{error}"
-    end
+    errors.each { |error| puts "- #{error}"}
     exit
   end
 end
 
 ENV['DECOUPLED'] = options[:environment]
 
-for folder in options[:folders]
-  $LOAD_PATH << File.join(Dir.pwd, folder)
-end
-require Decoupled::String.underscore(options[:job_klass])
+#options[:folders] = Array.new
+#options[:folders].each do |folder|
+#  $LOAD_PATH << File.join(Dir.pwd, folder)
+#end
+#require Decoupled::String.underscore(options[:job_klass])
 
 begin
   options[:scheduler_name] = "#{`hostname`.chomp}-#{Process.pid}"
   $0 = "starting decoupled:scheduler #{options[:scheduler_name]} with environment #{options[:environment]}"
 
-  puts '+---------------------------------------------------------------------------------------------'
+  puts "+----------------------------- Decoupled Version: #{Decoupled::VERSION} -------------------------------------"
   puts "| starting Decoupled Scheduler (#{options[:scheduler_name]}) with the following parameters:"
   puts "|"
   if options[:config_file]
     puts "| configfile:       #{config_file}"
     puts "|"
+  else
+    puts "| no config file -> using default settings"
+    puts "|"
   end
-  puts "| environment:      #{options[:environment]}"
+  puts "| environment:          #{options[:environment]}"
   puts "| custom collections:   #{options[:collections].empty? ? "" : options[:collections].join(",")}"
+  #puts "| custom folders:   #{options[:folders].empty? ? "" : options[:folders].join(",")}"
 
   @scheduler = Decoupled::Scheduler.new(options)
   @scheduler.start
@@ -193,4 +205,5 @@ rescue => e
   puts "Error #{e}"
   puts "Closing all existing connections"
   @scheduler.close_connections
+  puts e.backtrace.join("\n")
 end
