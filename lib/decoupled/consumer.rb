@@ -35,6 +35,7 @@ class Decoupled::Consumer
         @redis_conn = Redis.new(:host => @redis_host) 
       rescue Exception => e
         puts "Unable to connect to #{@redis_host} => #{e}"
+        @no_status = true
       end
     else
       @redis_conn = nil
@@ -152,9 +153,7 @@ class Decoupled::Consumer
       'status'         => consumer_status,
       'started_at'     => @started_at.strftime('%d.%m.%Y %H:%M:%S'),
     }
-    unless @no_status
-      @redis_conn.hset('decoupled.consumers', @consumer_name, status.to_json)
-    end
+    @redis_conn.hset('decoupled.consumers', @consumer_name, status.to_json) unless @no_status
   end
 
   # Remove Consumer from redis queue list while closing connection
@@ -167,9 +166,7 @@ class Decoupled::Consumer
   # the process will hang and exit will not work.
   def close_connections
     puts 'closing connections'
-    unless @no_status
-      remove_from_queue_list
-    end
+    remove_from_queue_list unless @no_status
     @executor.shutdown
     @channel.close
     @msg_conn.close
