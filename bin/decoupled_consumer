@@ -1,6 +1,5 @@
 #!/usr/bin/env ruby
 # coding: utf-8
-#require 'rubygems'
 
 # Load all files in the directory decoupled is started from
 $LOAD_PATH[0,0] = File.join(File.dirname(__FILE__), '..', 'lib')
@@ -40,19 +39,17 @@ optparse = OptionParser.new do |opts|
     options[:redis_host] = redis_host
   end  
 
-  options[:amqp_host] = 'localhost'
+  options[:amqp_fallbacks] = Array.new
+  options[:amqp_host]      = 'localhost'
   opts.on('-a', '--amqp_host localhost', "amqp server you want to connect to (default => #{options[:amqp_host]})") do |amqp_host|           
     options[:amqp_host]      = amqp_host.split(",").first
-    options[:amqp_fallbacks] = Array.new
-    first = false
-    for fallback in amqp_host.split(",")
-      unless first
-         options[:amqp_fallbacks].push fallback
-       else
-        first = true
-      end
+    first                    = false
+    amqp_host.split(",").each do |fallback|
+      options[:amqp_fallbacks].push fallback unless first
+      first = true
     end
   end
+  options[:amqp_fallbacks].push options[:amqp_host] if options[:amqp_fallbacks].empty?
 
   options[:folders] = Array.new
   opts.on('-f', '--folders FOLDER_NAMES', "folders you want to add to (default => #{options[:folders]})") do |folders|           
@@ -163,7 +160,7 @@ begin
   options[:consumer_name] = "#{`hostname`.chomp}-#{Process.pid}"
   $0 = "starting decoupled:consumer #{options[:consumer_name]} with environment #{options[:environment]}"
 
-  puts '+---------------------------------------------------------------------------------------------'
+  puts "+----------------------------- Decoupled Version: #{Decoupled::VERSION} -------------------------------------"
   puts "| starting Decoupled Consumer (#{options[:consumer_name]}) with the following parameters:"
   puts "|"
   if options[:config_file]
