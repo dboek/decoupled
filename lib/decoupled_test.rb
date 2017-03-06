@@ -4,8 +4,9 @@ require 'json'
 require 'java'
 require File.dirname(__FILE__) + '/jars/commons-cli-1.1.jar'
 require File.dirname(__FILE__) + '/jars/commons-io-1.2.jar'
-require File.dirname(__FILE__) + '/jars/rabbitmq-client.jar'
-require File.dirname(__FILE__) + '/jars/mongo-2.9.1.jar'
+require File.dirname(__FILE__) + '/jars/rabbitmq-client-3.6.2.jar'
+require File.dirname(__FILE__) + '/jars/mongo-2.14.2.jar'
+
 require 'redis'
 
 java_import java.util.concurrent.Executors
@@ -48,26 +49,26 @@ options[:scheduler_name]   = "scheduler_test"
 options[:scheduler_db]     = "skydb-development"
 
 begin
-    $0 = "starting decoupled:scheduler #{options[:scheduler_name]} with environment #{options[:environment]}"
+  $0 = "starting decoupled:scheduler #{options[:scheduler_name]} with environment #{options[:environment]}"
   
-    puts '+---------------------------------------------------------------------------------------------'
-    puts "| starting Decoupled Scheduler (#{options[:scheduler_name]}) with the following parameters:"
+  puts '+---------------------------------------------------------------------------------------------'
+  puts "| starting Decoupled Scheduler (#{options[:scheduler_name]}) with the following parameters:"
+  puts "|"
+  if options[:config_file]
+    puts "| configfile:       #{config_file}"
     puts "|"
-    if options[:config_file]
-      puts "| configfile:       #{config_file}"
-      puts "|"
-    end
-    puts "| environment:      #{options[:environment]}"
-    puts "| custom collections:   #{options[:collections].empty? ? "" : options[:collections].join(",")}"
+  end
+  puts "| environment:      #{options[:environment]}"
+  puts "| custom collections:   #{options[:collections].empty? ? "" : options[:collections].join(",")}"
 
 	@scheduler = Decoupled::Scheduler.new(options)
 	@scheduler.start
 
 	trap("TERM") { 
-	    puts 'shutting down scheduler, can take some time...'
-	    #loop = false
-	    @scheduler.close_connections
-	    exit 2
+    puts 'shutting down scheduler, can take some time...'
+    #loop = false
+    @scheduler.close_connections
+    exit 2
 	}
 
 	trap("SIGINT") {
@@ -86,6 +87,6 @@ begin
 
 rescue Exception => e 
 	puts "Failure in Scheduler Test => #{e}"
-  	puts "Closing all existing connections"
-    @scheduler.close_connections
+  puts "Closing all existing connections"
+  @scheduler.close_connections
 end
