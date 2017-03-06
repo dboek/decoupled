@@ -22,10 +22,25 @@ class Decoupled::Scheduler
 	  puts "| Creating ThreadPool of => #{@concurrent}"
 		@executor  = Executors.newFixedThreadPool(@concurrent)
 
+		@no_status = false
+		if @redis_host != ""
+			puts "| Creating Redis Connection on Host: #{@redis_host}"
+			begin
+				@redis_conn = Redis.new(:host => @redis_host) 
+			rescue Exception => e
+				puts "Unable to connect to #{@redis_host} => #{e}"
+				@no_status = true
+			end
+		else
+			@redis_conn = nil
+			@no_status  = true
+		end
+
 	  puts "| Creating AMQP Connection on Host: #{@amqp_host}"
 		puts "| AMQP Fallbacks: #{@amqp_fallbacks.join(",")}" if @amqp_fallbacks.length > 1
 	  @msg_conn = amqp_connection
-	  puts '| Creating Channel'
+	  puts '| Creating AMQP Channel'
+	  puts "|"
 	  @channel = @msg_conn.createChannel
 	  puts "| Using RabbitMQ Client #{@msg_conn.getClientProperties["version"]} and RabbitMQ Server #{@msg_conn.getServerProperties["version"]}"
 
@@ -59,6 +74,11 @@ class Decoupled::Scheduler
 			puts '+----------------------------------------------------------------------------------------------'
 			puts ""
 
+			@init_scheduler 		 = Time.now
+			@last_answer    		 = @init_scheduler
+			@processed_schedules = 0
+			@queued_schedules		 = 0
+
 			handle_incoming_scheduled_messages
 			handle_sending_scheduled_messages
 
@@ -74,6 +94,10 @@ class Decoupled::Scheduler
 				while @loop do
 					#puts ">> checking for new scheduled messages #{Time.now.strftime("%H:%M:%S")}"
 					response_exists = true
+
+					# status for manager
+					@last_answer = Time.now
+					listen_for_manager
 
 					while response_exists do
 						response = @channel.basicGet(@msg_queue, @autoAck);
@@ -106,6 +130,7 @@ class Decoupled::Scheduler
 			doc             = create_document_structure_for_db(message)
 
 			@db_conn.getDB(@skydb).getCollection(collection_name).insert(doc)
+			@queued_schedules += 1
 			#puts "   => Save Message #{message.inspect} in Database #{collection_name}"
 		rescue Exception => e 
 			puts "Failure in saving schedule in collection => #{e}"
@@ -299,6 +324,7 @@ class Decoupled::Scheduler
 					@channel.basicPublish("", document["queue"], nil, request.to_json.to_java_bytes)
 					puts "   | #{request.to_json.inspect} to Queue: #{document["queue"]}"
 					puts "   |"
+					@processed_schedules += 1
 				rescue Exception => e
 					puts "Failure in sending scheduled message to #{document["queue"]}"
 					puts "#{e.backtrace.join("\n")}"
@@ -369,10 +395,37 @@ class Decoupled::Scheduler
 	def close_connections
 		puts 'closing connections'
 		@loop = false
+		remove_from_queue_list unless @no_status
 		@executor.shutdown
 		@channel.close
 		@msg_conn.close
 	end
+
+	# saving current status of scheduler
+  def listen_for_manager
+  	begin
+	    status = {
+	      'name'           			=> @consumer_name,
+	      'queue_name'     			=> @msg_queue,
+	      'prefetch_count' 			=> @concurrent,
+	      'queued_schedules'   	=> @queued_schedules,
+	      'processed_schedules' => @processed_schedules,
+	      'last_answer'    			=> @last_answer.to_i,
+	      'status'         			=> "working",
+	      'started_at'     			=> @init_scheduler.strftime('%d.%m.%Y %H:%M:%S'),
+	    }
+	    @redis_conn.hset('decoupled.schedulers', @consumer_name, status.to_json) unless @no_status
+	  rescue Exception => e
+	  	puts "Exception in listen_for_manager => #{e}"
+	  	puts e.backtrace.join("\n")
+	  end
+  end
+
+  # Remove Consumer from redis queue list while closing connection
+  def remove_from_queue_list
+    puts "Removing #{@consumer_name} from Queue List"
+    @redis_conn.hdel('decoupled.schedulers', @consumer_name)
+  end
 
 	private
 
