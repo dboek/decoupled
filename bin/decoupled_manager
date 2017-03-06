@@ -1,0 +1,160 @@
+#!/usr/bin/env ruby
+# coding: utf-8
+
+# Load all files in the directory decoupled is started from
+$LOAD_PATH[0,0] = File.join(File.dirname(__FILE__), '..', 'lib')
+$LOAD_PATH << Dir.pwd
+#$LOAD_PATH << '.'
+
+require 'rubygems'
+require 'optparse'
+require 'redis'
+require 'decoupled'
+require 'yaml'
+
+options = {}
+
+# Die Parameter werden nacheinander abgeprüft, wenn ein mandatory Param fehlt bricht der Start ab
+# bei Erfolg wird der Consumer gestartet.
+# Ideen:
+# - noch einen yml Datei bereitstellen, über die man alles konfigurieren kann. 
+# - Lauschen auf merh als einem Kanal
+optparse = OptionParser.new do |opts|
+
+#  options[:verbose] = 'none'
+#  opts.on('-v', '--verbose TRUE', "name of the schedule queue (default => #{options[:verbose]})") do |verbose|            
+#    options[:verbose] = verbose
+#  end
+
+#  options[:schedule] = ''
+#  opts.on('-s', '--schedule', "start manager with scheduler (default => #{options[:schedule]})") do |schedule|            
+#    options[:queue_name] = schedule
+#  end
+  
+#  options[:queue_name] = 'schedule'
+#  opts.on('-q', '--queue_name QUEUE_NAME', "name of the schedule queue (default => #{options[:queue_name]})") do |queue_name|            
+#    options[:queue_name] = queue_name
+#  end
+  
+  options[:environment] = 'development'
+  opts.on('-e', '--environment DECOUPLED', "environment for different connections (default => #{options[:environment]})") do |environment|            
+    options[:environment] = environment
+  end
+
+  options[:redis_host] = 'localhost'
+  opts.on('-e', '--redis_host localhost', "redis host you want to connect to (default => #{options[:redis_host]})") do |redis_host|           
+    options[:redis_host] = redis_host
+  end 
+
+  #options[:amqp_fallbacks] = Array.new
+  #options[:amqp_hosts]     = Array.new
+  options[:amqp_hosts]     = ['localhost']
+  opts.on('-a', '--amqp_host localhost', "amqp server you want to connect to (default => #{options[:amqp_hosts]})") do |amqp_hosts|
+    options[:amqp_hosts] = amqp_hosts.split(",")
+    #options[:amqp_host]      = amqp_host.split(",").first
+    #first                    = false
+    #amqp_host.split(",").each do |fallback|
+    #  options[:amqp_fallbacks].push fallback unless first
+    #  first = true
+    #end
+  end
+  #options[:amqp_fallbacks].push options[:amqp_host] if options[:amqp_fallbacks].empty?
+
+  opts.on('-h', '--help', 'Help messages') do     
+    puts opts
+    exit    
+  end       
+end
+
+begin       
+  optparse.parse!                 
+  if options[:config_file].nil?             
+    mandatory = [] #[:queue_name, :concurrent_count, :job_klass]
+    missing = mandatory.select{ |param| options[param].nil? }        
+    if not missing.empty?
+      puts "Missing options: #{missing.join(', ')}"                  
+      puts optparse      
+      exit       
+    end
+  else
+    # Loading Configfile is option parameter is set
+    begin
+      file_exists = true
+
+      config_file = ""
+      if options[:config_file].include? ".yml"
+        config_file = options[:config_file]
+      else
+        config_file = options[:config_file]+".yml"
+      end
+      fn  = File.dirname(Dir.pwd) + "/config/#{config_file}"
+      cnf = YAML::load(File.open(fn)) 
+
+      puts "Loading parameters from config file..."
+      puts ""
+    rescue Exception => e 
+      if e == "No such file or directory"
+        puts "#{e} - Looking for option parameters instead."
+        file_exists = false
+      end 
+    end
+  end
+rescue OptionParser::InvalidOption, OptionParser::MissingArgument  
+  puts $!.to_s         
+  puts optparse        
+  exit
+end
+
+# TODO: Loading parameters from config file
+if file_exists
+end
+
+ENV['DECOUPLED'] = options[:environment]
+
+begin
+  options[:manager_name] = "#{`hostname`.chomp}-manager-#{Process.pid}"
+  $0 = "starting decoupled:manager #{options[:manager_name]} with environment #{options[:environment]}"
+
+  puts "+----------------------------- Decoupled Version: #{Decoupled::VERSION} -------------------------------------"
+  puts "| starting Decoupled Manager (#{options[:manager_name]}) with the following parameters:"
+  puts "|"
+  if options[:config_file]
+    puts "| configfile:       #{config_file}"
+    puts "|"
+  else
+    puts "| no configfile"
+    puts "|"
+  end
+  puts "| environment:      #{options[:environment]}"
+  puts "| custom folders:   #{options[:folders].empty? ? "" : options[:folders].join(",")}"
+
+  @manager = Decoupled::Manager.new(options)
+  @manager.monitor
+
+  $0 = "decoupled:manager montitoring consumers and schedulers on RabbitmqServer: #{options[:amqp_host]}"
+
+  trap("TERM") { 
+    puts 'shutting down decoupled manager, can take some time...'
+    loop = false
+    @manager.close_connections
+    exit 2
+  }
+
+  trap("SIGINT") {
+    puts 'shutting down decoupled manager, can take some time...'
+    loop = false
+    @manager.close_connections
+    exit 2
+  }
+
+  trap("INT") { 
+    puts 'shutting down decoupled manager, can take some time...'
+    loop = false
+    @manager.close_connections
+    exit 2
+  }
+rescue Exception => e
+  puts "Error #{e}"
+  puts "Closing all existing connections"
+  @manager.close_connections
+end
