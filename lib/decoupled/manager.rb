@@ -70,7 +70,7 @@ class Decoupled::Manager
       @init_manager = Time.now
       @last_answer  = @init_manager
 
-      monitoring_queues
+      monitoring_consumers
 
     rescue Exception => e 
       puts "Exception in start_monitoring method => #{e}"
@@ -78,7 +78,7 @@ class Decoupled::Manager
     end
   end
 
-  def monitoring_queues
+  def monitoring_consumers
     #@channels.each do |channel|
       @loop = true
       @executor.submit do 
