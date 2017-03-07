@@ -1,5 +1,13 @@
 # coding: utf-8
 
+####
+#
+# TODO:
+# - über Manager Schedules anlegen & verwalten ?
+# - Überwachung der Consumer und Scheduler in den jeweiligen Queues 
+#
+####
+
 class Decoupled::Manager
 
   attr_accessor :channels, :msg_conns, :db_conn, :amqp_hosts
@@ -8,12 +16,8 @@ class Decoupled::Manager
     @job_errors     = 0
     @processed_jobs = 0
     @consumer_name  = options[:manager_name]
-    @concurrent     = options[:amqp_hosts].length #1 #options[:concurrent_count]
-    #@job_klass      = options[:job_klass]
+    @concurrent     = options[:amqp_hosts].length
     @amqp_hosts     = options[:amqp_hosts]
-    #@amqp_fallbacks = options[:amqp_fallbacks]
-    #@job_count      = 1
-    #@msg_queue      = options[:queue_name]
     @redis_host     = options[:redis_host]
 
     # Instance Objects to be stopped by the decoupled instance
@@ -35,17 +39,17 @@ class Decoupled::Manager
       @no_status  = true
     end
 
-    puts "| Creating AMQP Connections to Hosts: #{@amqp_hosts.join(",")}"
+#    puts "| Creating AMQP Connections to Hosts: #{@amqp_hosts.join(",")}"
     #puts "| AMQP Fallbacks: #{@amqp_fallbacks.join(",")}" if @amqp_fallbacks.length > 1
-    @msg_conns = amqp_connections
-    puts '| Creating AMQP Channels'
-    puts "|"
-
-    @channels = Array.new
-    @msg_conns.each do |msg_conn|
-      @channels.push msg_conn.createChannel
-      puts "| Using RabbitMQ Client #{msg_conn.getClientProperties["version"]} and RabbitMQ Server #{msg_conn.getServerProperties["version"]}"
-    end
+#    @msg_conns = amqp_connections
+#    puts '| Creating AMQP Channels'
+#    puts "|"
+#
+#    @channels = Array.new
+#    @msg_conns.each do |msg_conn|
+#      @channels.push msg_conn.createChannel
+#      puts "| Using RabbitMQ Client #{msg_conn.getClientProperties["version"]} and RabbitMQ Server #{msg_conn.getServerProperties["version"]}"
+#    end
 
     # Database Connection
     opts     = MongoClientOptions::Builder.new.connectionsPerHost(@concurrent).build
@@ -75,15 +79,34 @@ class Decoupled::Manager
   end
 
   def monitoring_queues
-    @channels.each do |channel|
+    #@channels.each do |channel|
+      @loop = true
       @executor.submit do 
-        loop = true
-
         begin
-          while loop do
+          while @loop do
             # TOOD: Checks auf die Redis Datenbank vornehmen und aktuelle Schedules überprüfen in MongoDB
 
-            puts "Checking Consumers and Schedulers on Channel #{}"
+            #puts "Checking Consumers and Schedulers on Channel #{}"
+
+            consumers = @redis_conn.hgetall('decoupled.consumers')
+
+            if consumers.empty?
+              puts "Keine Consumer gefunden"
+            else
+              puts "#{consumers.length} Consumer gefunden"
+              consumers.each_value { |value|
+                consumer    = JSON.parse(value)
+                last_answer = Time.now.to_i - consumer['last_answer'].to_i
+                if last_answer > 120 # als gecrashed markieren nach 2 Minuten
+                  if last_answer > (60*15)*1 # remove redis entry of consumer if there is older than 15 minutes
+                    @redis_conn.hdel( 'decoupled.consumers', consumer['name'] )
+                  else
+                    consumer['status'] = 'crashed'
+                    @redis_conn.hset('decoupled.consumers', consumer['name'], consumer.to_json)
+                  end
+                end
+              }
+            end
 
             sleep(5)
           end
@@ -92,17 +115,18 @@ class Decoupled::Manager
           puts e.backtrace.join("\n")
         end
       end  
-    end
+    #end
   end
 
   # All connections need to be closed, otherwise
   # the process will hang and exit will not work.
   def close_connections
     puts 'closing connections'
+    @loop = false
     #remove_from_queue_list #unless @no_status
     @executor.shutdown
-    @channels.each { |channel| channel.close }
-    @msg_conns.each { |msg_conn| msg_conn.close }
+    #@channels.each { |channel| channel.close }
+    #@msg_conns.each { |msg_conn| msg_conn.close }
   end
 
   private
